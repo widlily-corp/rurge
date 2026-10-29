@@ -1,0 +1,10 @@
+id = "simple_hud"
+name = "Simple HUD Mod"
+version = "0.1.0"
+description = "HUD overlay and coordinates tracking mod for Horizon"
+authors = ["Rurge Team"]
+environment = "client"
+
+[dependencies]
+
+[incompatibilities]

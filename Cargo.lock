@@ -593,6 +593,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rurge-runtime"
+version = "0.1.0"
+dependencies = [
+ "parking_lot",
+ "rurge-api",
+ "rurge-blamer",
+ "rurge-core",
+ "rurge-loader",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"

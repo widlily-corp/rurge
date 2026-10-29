@@ -5,6 +5,7 @@ members = [
     "crates/rurge-core",
     "crates/rurge-blamer",
     "crates/rurge-loader",
+    "crates/rurge-runtime",
 ]
 
 [workspace.package]

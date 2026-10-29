@@ -1,0 +1,45 @@
+[package]
+name = "rurge"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/rurge-api",
+    "crates/rurge-core",
+    "crates/rurge-blamer",
+    "crates/rurge-loader",
+    "crates/rurge-runtime",
+    "crates/cargo-rurge",
+    "examples/simple-hud-mod",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Rurge Contributors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/rurge/rurge"
+
+[workspace.dependencies]
+abi_stable = "0.11"
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+rurge-api = { path = "crates/rurge-api" }
+rurge-core = { path = "crates/rurge-core" }
+rurge-blamer = { path = "crates/rurge-blamer" }
+rurge-loader = { path = "crates/rurge-loader" }
+rurge-runtime = { path = "crates/rurge-runtime" }
+cargo-rurge = { path = "crates/cargo-rurge" }
+simple-hud-mod = { path = "examples/simple-hud-mod" }
+abi_stable = { workspace = true }
+tempfile = "3.17"
+zip = "2.2"
+libloading = "0.8"

@@ -1,0 +1,13 @@
+[package]
+name = "simple-hud-mod"
+version = "0.1.0"
+edition = "2024"
+authors = ["Rurge Team <team@rurge.dev>"]
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rurge-api = { path = "../../crates/rurge-api" }
+abi_stable = { workspace = true }

@@ -1,0 +1,21 @@
+[package]
+name = "rurge-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rurge-api = { path = "../rurge-api" }
+rurge-core = { path = "../rurge-core" }
+rurge-blamer = { path = "../rurge-blamer" }
+rurge-loader = { path = "../rurge-loader" }
+parking_lot = "0.12"
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+tempfile = "3.17"

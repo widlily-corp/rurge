@@ -111,3 +111,26 @@ fn test_write_crash_report_to_file() {
     let _ = std::fs::remove_file(&report_path);
     let _ = std::fs::remove_dir(&temp_dir);
 }
+
+
+#[test]
+fn test_panic_throttling_and_max_capacity() {
+    let blamer = Blamer::new();
+
+    // Trigger 300 panics for spam_mod
+    for i in 0..300 {
+        let _ = safe_invoke("spam_mod", "tick", &blamer, || {
+            panic!("spam error {i}");
+        });
+    }
+
+    assert_eq!(blamer.panic_count_for_mod("spam_mod"), 300);
+
+    let recent = blamer.get_recent_panics();
+    // Verify ring buffer caps at 256 records
+    assert_eq!(recent.len(), 256);
+
+    // Verify backtrace was throttled after threshold
+    let last_record = recent.last().unwrap();
+    assert!(last_record.backtrace.contains("Backtrace throttled"));
+}

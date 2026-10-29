@@ -56,31 +56,29 @@ impl TickHooks {
         });
     }
 
-    /// Executes all client tick hooks within safe panic boundaries.
+    /// Executes all client tick hooks within safe panic boundaries without atomic ref-count overhead.
     pub fn execute_client_ticks(&self, tick_count: u64, blamer: &Blamer) {
         for entry in &self.client_handlers {
-            let handler = Arc::clone(&entry.handler);
             let _ = safe_invoke(
                 &entry.mod_id,
                 "client_tick",
                 blamer,
-                std::panic::AssertUnwindSafe(move || {
-                    handler(tick_count);
+                std::panic::AssertUnwindSafe(|| {
+                    (entry.handler)(tick_count);
                 }),
             );
         }
     }
 
-    /// Executes all server tick hooks within safe panic boundaries.
+    /// Executes all server tick hooks within safe panic boundaries without atomic ref-count overhead.
     pub fn execute_server_ticks(&self, tick_count: u64, blamer: &Blamer) {
         for entry in &self.server_handlers {
-            let handler = Arc::clone(&entry.handler);
             let _ = safe_invoke(
                 &entry.mod_id,
                 "server_tick",
                 blamer,
-                std::panic::AssertUnwindSafe(move || {
-                    handler(tick_count);
+                std::panic::AssertUnwindSafe(|| {
+                    (entry.handler)(tick_count);
                 }),
             );
         }

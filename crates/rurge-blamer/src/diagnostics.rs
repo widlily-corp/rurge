@@ -1,5 +1,9 @@
+use std::collections::{HashMap, VecDeque};
 use parking_lot::RwLock;
 use serde::Serialize;
+
+/// Maximum number of recent panic records retained in memory to prevent OOM.
+pub const MAX_RECENT_PANICS: usize = 256;
 
 /// Information about a single caught panic attributed to a specific mod.
 #[derive(Debug, Clone, Serialize)]
@@ -13,39 +17,48 @@ pub struct BlameRecord {
 
 /// Thread-safe registry that collects blame records and tracks mod panic counts.
 pub struct Blamer {
-    records: RwLock<Vec<BlameRecord>>,
+    records: RwLock<VecDeque<BlameRecord>>,
+    panic_counts: RwLock<HashMap<String, usize>>,
 }
 
 impl Blamer {
     /// Creates a new empty `Blamer`.
     pub fn new() -> Self {
         Self {
-            records: RwLock::new(Vec::new()),
+            records: RwLock::new(VecDeque::with_capacity(MAX_RECENT_PANICS)),
+            panic_counts: RwLock::new(HashMap::new()),
         }
     }
 
-    /// Records a mod panic incident.
+    /// Records a mod panic incident with ring-buffer eviction to protect against OOM.
     pub fn record_panic(&self, record: BlameRecord) {
-        self.records.write().push(record);
+        *self.panic_counts.write().entry(record.mod_id.clone()).or_insert(0) += 1;
+
+        let mut lock = self.records.write();
+        if lock.len() >= MAX_RECENT_PANICS {
+            lock.pop_front();
+        }
+        lock.push_back(record);
     }
 
-    /// Returns a copy of all recorded panic incidents.
+    /// Returns a copy of recent recorded panic incidents.
     pub fn get_recent_panics(&self) -> Vec<BlameRecord> {
-        self.records.read().clone()
+        self.records.read().iter().cloned().collect()
     }
 
-    /// Returns the number of panics attributed to a given mod ID.
+    /// Returns the cumulative number of panics attributed to a given mod ID in O(1) time.
     pub fn panic_count_for_mod(&self, mod_id: &str) -> usize {
-        self.records
+        self.panic_counts
             .read()
-            .iter()
-            .filter(|r| r.mod_id == mod_id)
-            .count()
+            .get(mod_id)
+            .copied()
+            .unwrap_or(0)
     }
 
-    /// Clears all recorded panic incidents.
+    /// Clears all recorded panic incidents and counters.
     pub fn clear(&self) {
         self.records.write().clear();
+        self.panic_counts.write().clear();
     }
 }
 

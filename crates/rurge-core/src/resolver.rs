@@ -130,8 +130,8 @@ impl DependencyResolver {
                 let mut stack = Vec::new();
 
                 for node in graph.node_indices() {
-                    if visited[node.index()] == 0 {
-                        if let Some(cycle_indices) = Self::find_cycle_dfs(node, &graph, &mut visited, &mut stack) {
+                    if visited[node.index()] == 0
+                        && let Some(cycle_indices) = Self::find_cycle_dfs(node, &graph, &mut visited, &mut stack) {
                             let mut cycle: Vec<String> = cycle_indices
                                 .into_iter()
                                 .map(|idx| manifests[idx].id.clone())
@@ -139,7 +139,6 @@ impl DependencyResolver {
                             cycle.sort();
                             return Err(ResolverError::CircularDependency { cycle });
                         }
-                    }
                 }
 
                 Err(ResolverError::CircularDependency { cycle: Vec::new() })
@@ -163,11 +162,10 @@ impl DependencyResolver {
                     let cycle = stack[pos..].iter().map(|n| graph[*n]).collect();
                     return Some(cycle);
                 }
-            } else if visited[neighbor.index()] == 0 {
-                if let Some(cycle) = Self::find_cycle_dfs(neighbor, graph, visited, stack) {
+            } else if visited[neighbor.index()] == 0
+                && let Some(cycle) = Self::find_cycle_dfs(neighbor, graph, visited, stack) {
                     return Some(cycle);
                 }
-            }
         }
 
         stack.pop();

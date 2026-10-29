@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/rurge-api",
     "crates/rurge-core",
+    "crates/rurge-blamer",
 ]
 
 [workspace.package]

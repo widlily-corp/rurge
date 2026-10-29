@@ -4,6 +4,7 @@ members = [
     "crates/rurge-api",
     "crates/rurge-core",
     "crates/rurge-blamer",
+    "crates/rurge-loader",
 ]
 
 [workspace.package]

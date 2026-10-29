@@ -1,0 +1,20 @@
+[package]
+name = "rurge-loader"
+version = "0.1.0"
+edition = "2024"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = ".rmod archive extractor and dynamic library loader for Rurge mod loader"
+
+[dependencies]
+rurge-api = { path = "../rurge-api" }
+rurge-core = { path = "../rurge-core" }
+rurge-blamer = { path = "../rurge-blamer" }
+libloading = "0.8"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+thiserror = "2.0"
+parking_lot = "0.12"
+
+[dev-dependencies]
+tempfile = "3.17"

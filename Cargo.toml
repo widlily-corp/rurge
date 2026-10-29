@@ -6,6 +6,7 @@ members = [
     "crates/rurge-blamer",
     "crates/rurge-loader",
     "crates/rurge-runtime",
+    "crates/cargo-rurge",
 ]
 
 [workspace.package]

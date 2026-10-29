@@ -1,0 +1,31 @@
+[package]
+name = "cargo-rurge"
+version = "0.1.0"
+edition = "2024"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Developer CLI tool for Rurge native mods (scaffolding, building, packaging)"
+
+[lib]
+name = "cargo_rurge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cargo-rurge"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+rurge-core = { path = "../rurge-core" }
+rurge-loader = { path = "../rurge-loader" }
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+walkdir = "2.5"
+
+[dev-dependencies]
+tempfile = "3.17"
+semver = "1.0"
+

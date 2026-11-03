@@ -2,3 +2,10 @@
 /.superpowers
 **/*.rs.bk
 *.rmod
+/.local
+/.horizon-cache
+horizon-graphics.txt
+options.txt
+shaderpacks/
+mods/
+

@@ -3506,6 +3506,7 @@ dependencies = [
  "rurge-core",
  "rurge-loader",
  "rurge-runtime",
+ "tempfile",
  "wgpu",
  "zip 9.3.0",
 ]

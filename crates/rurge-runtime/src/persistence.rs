@@ -80,11 +80,9 @@ impl WorldDataAttachment {
         mod_id: &str,
         key: &str,
     ) -> Result<Option<T>, PersistenceError> {
-        if let Some(mod_data) = self.data.get(mod_id) {
-            if let Some(val) = mod_data.get(key) {
-                let deserialized = serde_json::from_value(val.clone())?;
-                return Ok(Some(deserialized));
-            }
+        if let Some(val) = self.data.get(mod_id).and_then(|mod_data| mod_data.get(key)) {
+            let deserialized = serde_json::from_value(val.clone())?;
+            return Ok(Some(deserialized));
         }
         Ok(None)
     }

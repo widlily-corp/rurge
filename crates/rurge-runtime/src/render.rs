@@ -54,6 +54,7 @@ impl<'a> RenderPassContext<'a> {
 }
 
 type RenderHookFn = Box<dyn Fn(&mut RenderPassContext) + Send + Sync + 'static>;
+type NamedRenderPassHook = (String, Box<dyn Fn(&ApiRenderPassContext) + Send + Sync>);
 
 struct RenderHookEntry {
     mod_id: String,
@@ -64,8 +65,8 @@ struct RenderHookEntry {
 #[derive(Default)]
 pub struct RenderPipelineHooks {
     passes: RwLock<HashMap<RenderPassPhase, Vec<RenderHookEntry>>>,
-    world_drawn_hooks: RwLock<Vec<(String, Box<dyn Fn(&ApiRenderPassContext) + Send + Sync>)>>,
-    hand_drawn_hooks: RwLock<Vec<(String, Box<dyn Fn(&ApiRenderPassContext) + Send + Sync>)>>,
+    world_drawn_hooks: RwLock<Vec<NamedRenderPassHook>>,
+    hand_drawn_hooks: RwLock<Vec<NamedRenderPassHook>>,
 }
 
 impl RenderPipelineHooks {

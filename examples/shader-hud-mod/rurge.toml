@@ -1,0 +1,6 @@
+id = "shader-hud-mod"
+name = "Shader Aware HUD Mod"
+version = "0.1.0"
+description = "An example Rurge mod demonstrating shaderpack lifecycle observation and render hooks"
+authors = ["Rurge Team"]
+entrypoint = "shader_hud_mod"

@@ -152,11 +152,9 @@ fn test_render_pass_context_custom_data() {
         "custom_mod".to_string(),
         RenderPassPhase::PostProcess,
         move |ctx| {
-            if let Some(custom) = &mut ctx.custom_data {
-                if let Some(val) = custom.downcast_mut::<u32>() {
-                    *val += 10;
-                    counter_clone.store(*val, Ordering::SeqCst);
-                }
+            if let Some(val) = ctx.custom_data.as_mut().and_then(|c| c.downcast_mut::<u32>()) {
+                *val += 10;
+                counter_clone.store(*val, Ordering::SeqCst);
             }
         },
     );

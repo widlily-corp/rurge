@@ -3456,6 +3456,7 @@ dependencies = [
  "rurge-horizon",
  "rurge-loader",
  "rurge-runtime",
+ "shader-hud-mod",
  "simple-hud-mod",
  "tempfile",
  "zip 2.6.1",
@@ -3764,6 +3765,15 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+]
+
+[[package]]
+name = "shader-hud-mod"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "log",
+ "rurge-api",
 ]
 
 [[package]]

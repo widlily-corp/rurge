@@ -33,6 +33,39 @@ impl EventPriority {
     ];
 }
 
+impl From<i32> for EventPriority {
+    fn from(val: i32) -> Self {
+        match val {
+            ..=-2 => EventPriority::Lowest,
+            -1 => EventPriority::Low,
+            0 => EventPriority::Normal,
+            1 => EventPriority::High,
+            2.. => EventPriority::Highest,
+        }
+    }
+}
+
+/// Helper trait allowing events to be dispatched via `&mut E` or `&E` (when `E: Clone`).
+pub trait EventArg {
+    type Event: 'static;
+    fn with_mut<R>(self, f: impl FnOnce(&mut Self::Event) -> R) -> R;
+}
+
+impl<E: 'static> EventArg for &mut E {
+    type Event = E;
+    fn with_mut<R>(self, f: impl FnOnce(&mut E) -> R) -> R {
+        f(self)
+    }
+}
+
+impl<E: 'static + Clone> EventArg for &E {
+    type Event = E;
+    fn with_mut<R>(self, f: impl FnOnce(&mut E) -> R) -> R {
+        let mut cloned = self.clone();
+        f(&mut cloned)
+    }
+}
+
 #[inline]
 fn priority_rank(priority: EventPriority) -> u8 {
     match priority {
@@ -118,6 +151,16 @@ impl EventBus {
         id
     }
 
+    /// Registers an immutable event handler with a priority (e.g. 0 for Normal).
+    pub fn register<E: 'static, F>(&self, priority: impl Into<EventPriority>, handler: F) -> SubscriptionId
+    where
+        F: Fn(&E) + Send + Sync + 'static,
+    {
+        self.subscribe(priority.into(), move |event: &mut E| {
+            handler(&*event);
+        })
+    }
+
     /// Subscribes a handler for a cancellable event type `E`, automatically registering its cancellation checker.
     pub fn subscribe_cancellable<E: CancellableEvent + 'static, F>(
         &self,
@@ -158,8 +201,10 @@ impl EventBus {
     }
 
     /// Dispatches an event through all registered handlers in priority order.
-    pub fn dispatch<E: 'static>(&self, event: &mut E) {
-        self.dispatch_internal(event, None);
+    pub fn dispatch<A: EventArg>(&self, event: A) {
+        event.with_mut(|ev| {
+            self.dispatch_internal(ev, None);
+        });
     }
 
     /// Dispatches a cancellable event, ensuring cancellation state is monitored after each handler.

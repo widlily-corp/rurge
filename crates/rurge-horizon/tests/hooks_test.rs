@@ -192,3 +192,73 @@ fn test_arc_engine_shutdown() {
     engine.shutdown();
     assert!(!engine.is_initialized());
 }
+
+#[test]
+fn test_rurge_horizon_mods_and_settings_population() {
+    let engine = Arc::new(RurgeEngine::new());
+    let hooks = RurgeHorizonHooks::new(engine);
+
+    let mut mods = Vec::new();
+    hooks.populate_native_mods(&mut mods);
+
+    assert_eq!(mods.len(), 2, "Expected core loader and shaders entries");
+    assert_eq!(mods[0].id, "rurge_core");
+    assert!(mods[0].title.contains("Rurge Mod Loader"));
+    assert_eq!(mods[1].id, "rurge_shaders");
+    assert!(mods[1].title.contains("Shaders"));
+
+    let mut core_buttons = Vec::new();
+    hooks.populate_settings("rurge_core", &mut core_buttons);
+    assert!(core_buttons.iter().any(|b| b.contains("Open Mods Folder")));
+    assert!(core_buttons.iter().any(|b| b.contains("Open Shaderpacks Folder")));
+
+    let mut shader_buttons = Vec::new();
+    hooks.populate_settings("rurge_shaders", &mut shader_buttons);
+    assert!(shader_buttons.iter().any(|b| b.contains("Active:")));
+    assert!(shader_buttons.iter().any(|b| b.contains("Open Shaderpacks Folder")));
+}
+
+#[test]
+fn test_rurge_horizon_command_handling() {
+    let engine = Arc::new(RurgeEngine::new());
+    let hooks = RurgeHorizonHooks::new(engine);
+
+    // /rurge command
+    let res = hooks.handle_command_str("rurge");
+    assert!(res.is_some());
+    let (msg, flow) = res.unwrap();
+    assert!(msg.contains("Rurge"));
+    assert!(matches!(flow, horizon_client::mod_api::Flow::Cancel));
+
+    // /rurge help command
+    let res_help = hooks.handle_command_str("rurge help");
+    assert!(res_help.is_some());
+
+    // Unknown command
+    let res_unknown = hooks.handle_command_str("other_cmd");
+    assert!(res_unknown.is_none());
+}
+
+#[test]
+fn test_rurge_horizon_toggle_default_shaderpack_in() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let engine = Arc::new(RurgeEngine::new());
+    let hooks = RurgeHorizonHooks::new(engine.clone());
+
+    // Initial state: no graphics file
+    assert_eq!(RurgeHorizonHooks::query_active_shaderpack_in(temp_dir.path()), None);
+
+    // Toggle 1: should activate test-classic-shader.zip
+    hooks.toggle_default_shaderpack_in(temp_dir.path());
+    assert_eq!(
+        RurgeHorizonHooks::query_active_shaderpack_in(temp_dir.path()).as_deref(),
+        Some("test-classic-shader.zip")
+    );
+    assert_eq!(hooks.current_shader().as_deref(), Some("test-classic-shader.zip"));
+
+    // Toggle 2: should deactivate
+    hooks.toggle_default_shaderpack_in(temp_dir.path());
+    assert_eq!(RurgeHorizonHooks::query_active_shaderpack_in(temp_dir.path()), None);
+    assert_eq!(hooks.current_shader(), None);
+}
+

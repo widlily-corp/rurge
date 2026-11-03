@@ -6,9 +6,11 @@
 /.horizon-cache
 /.cache
 horizon-graphics.txt
+horizon-player.txt
 horizon_official_server.txt
 servers.dat
 options.txt
+saves/
 shaderpacks/
 mods/
 run.log

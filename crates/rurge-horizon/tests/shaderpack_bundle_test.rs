@@ -48,3 +48,26 @@ fn test_shaderpack_bundle_installation_and_validation() {
     assert!(pack_has_stage(&in_memory_pack, "gbuffers_terrain"));
     assert!(in_memory_pack.exists("shaders.properties"));
 }
+
+#[test]
+fn test_load_post_on_default_shaderpack() {
+    let bytes = rurge_horizon::shaderpack_bundle::build_shaderpack_zip_bytes()
+        .expect("build_shaderpack_zip_bytes must succeed");
+    let pack = horizon_shaders::Pack::from_zip_bytes("test-classic-shader.zip", bytes)
+        .expect("in-memory zip bytes must be valid pack");
+
+    let macros = horizon_shaders::Macros::standard();
+    let properties = horizon_shaders::Properties::default();
+    let mut inputs = horizon_shaders::GameInputs::default();
+    inputs.terrain = Some(horizon_shaders::GbuffersInputs::default());
+
+    let post = horizon_shaders::load_post(&pack, "", &properties, &macros, &inputs);
+    println!("Post notes: {:?}", post.notes);
+    println!("Post programs: {}", post.programs.len());
+    println!("Post terrain: is_some={}", post.terrain.is_some());
+    for p in &post.programs {
+        println!("Program {}: is_some={}", p.name, p.program.is_some());
+    }
+    assert!(post.notes.is_empty(), "Notes: {:?}", post.notes);
+    assert!(post.terrain.is_some(), "terrain program must be present");
+}

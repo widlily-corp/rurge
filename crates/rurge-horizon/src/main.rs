@@ -31,8 +31,8 @@ fn main() {
         Err(e) => log::warn!("Failed to install default shaderpack: {e}"),
     }
 
-    // 4b. Ensure default shaderpack is active in horizon-graphics.txt if none is picked.
-    ensure_default_shaderpack_active();
+    // 4b. Ensure default shaderpack and compatible graphics API (Auto/Vulkan) are configured.
+    ensure_compatible_graphics_config();
 
     // 5. Initialize RurgeEngine.
     let mut engine = RurgeEngine::new();
@@ -60,16 +60,20 @@ fn main() {
 }
 
 /// Activates `test-classic-shader.zip` by default in `horizon-graphics.txt` if none is configured,
-/// ensuring the user immediately sees working classic shaders without menu navigation.
-fn ensure_default_shaderpack_active() {
+/// and ensures a compatible modern backend (Auto/Vulkan/Dx12) is selected instead of legacy OpenGL
+/// where Naga's GLSL backend fails on depth texture loads (`textureLoad` in `fs_blit`).
+fn ensure_compatible_graphics_config() {
     let path = Path::new("horizon-graphics.txt");
     let content = std::fs::read_to_string(path).unwrap_or_default();
-    let has_picked = content.lines().any(|l| {
+    let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+    let mut modified = false;
+
+    // 1. Ensure pickedShaderPack is set
+    let has_picked = lines.iter().any(|l| {
         l.starts_with("pickedShaderPack:")
             && !l.trim_start_matches("pickedShaderPack:").trim().is_empty()
     });
     if !has_picked {
-        let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
         let mut found = false;
         for line in &mut lines {
             if line.starts_with("pickedShaderPack:") {
@@ -81,6 +85,27 @@ fn ensure_default_shaderpack_active() {
         if !found {
             lines.push("pickedShaderPack:test-classic-shader.zip".to_string());
         }
+        modified = true;
+    }
+
+    // 2. Ensure graphicsApi is auto/vulkan rather than opengl (which breaks shader blit in wgpu)
+    let mut api_found = false;
+    for line in &mut lines {
+        if line.starts_with("graphicsApi:") {
+            api_found = true;
+            if line.trim() == "graphicsApi:opengl" {
+                *line = "graphicsApi:auto".to_string();
+                modified = true;
+            }
+            break;
+        }
+    }
+    if !api_found {
+        lines.push("graphicsApi:auto".to_string());
+        modified = true;
+    }
+
+    if modified {
         let _ = std::fs::write(path, lines.join("\n") + "\n");
     }
 }

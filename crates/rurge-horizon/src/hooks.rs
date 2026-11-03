@@ -102,6 +102,14 @@ impl RurgeHorizonHooks {
         if !replaced {
             lines.push(format!("pickedShaderPack:{new_val}"));
         }
+        // When enabling shaders, ensure graphicsApi is not legacy opengl (which breaks depth textureLoad)
+        if !new_val.is_empty() {
+            for line in &mut lines {
+                if line.starts_with("graphicsApi:") && line.trim() == "graphicsApi:opengl" {
+                    *line = "graphicsApi:auto".to_string();
+                }
+            }
+        }
         let _ = std::fs::write(&path, lines.join("\n") + "\n");
         let new_opt = if new_val.is_empty() {
             None

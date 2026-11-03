@@ -16,13 +16,14 @@ members = [
     "crates/rurge-loader",
     "crates/rurge-runtime",
     "crates/cargo-rurge",
+    "crates/rurge-horizon",
     "examples/simple-hud-mod",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.90"
 authors = ["Rurge Contributors"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rurge/rurge"
@@ -43,3 +44,8 @@ abi_stable = { workspace = true }
 tempfile = "3.17"
 zip = "2.2"
 libloading = "0.8"
+
+[patch.crates-io]
+wgpu-hal = { path = "../horizon/third_party/wgpu-hal" }
+naga = { path = "../horizon/third_party/naga" }
+libmimalloc-sys = { path = "../horizon/third_party/libmimalloc-sys" }

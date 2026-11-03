@@ -3,7 +3,7 @@
 [![Rust](https://img.shields.io/badge/rust-stable%202024%20(1.85+)-B7410E?logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![Minecraft Parity](https://img.shields.io/badge/Minecraft-Java%2026.3-5D9C3F)](https://github.com/horizon-rust/horizon)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-52%20passed-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-68%20passed-success)](tests/)
 
 **Rurge** is a high-performance native mod loader and runtime engine designed specifically for [Horizon](https://github.com/horizon-rust/horizon) (the full rewrite of Minecraft: Java Edition in Rust).
 
@@ -30,9 +30,11 @@ rurge/
 │   ├── rurge-blamer/    # Panic boundary isolation, stack tracing, and crash report generator
 │   ├── rurge-loader/    # .rmod ZIP extraction, multi-arch dylib loading, lifecycle manager
 │   ├── rurge-runtime/   # Horizon game loop integration, WGPU render hooks, NBT persistence
-│   └── cargo-rurge/     # Developer CLI tool (new, build, pack)
+│   ├── rurge-horizon/   # Native client launcher with WGPU shader pipeline & embedded shaders
+│   └── cargo-rurge/     # Developer CLI tool (new, build, pack, run)
 ├── examples/
-│   └── simple-hud-mod/  # Real example native mod demonstrating coordinates HUD & panic recovery
+│   ├── simple-hud-mod/  # Real example native mod demonstrating coordinates HUD & panic recovery
+│   └── shader-hud-mod/  # Real example native mod responding to shaderpack events & render hooks
 └── tests/
     └── integration_e2e_test.rs # End-to-end integration test suite
 ```
@@ -96,6 +98,100 @@ cargo rurge pack --release
 ```
 
 This compiles your native library and outputs `my_mod-0.1.0.rmod`. Drop it into Horizon's `mods/` folder and play!
+
+---
+
+## 🎮 Running the Rurge Client (`rurge-horizon`)
+
+Rurge provides a dedicated native client runner crate, `rurge-horizon`, which embeds the Rurge mod loader and WGPU render pipeline directly into the Horizon client lifecycle.
+
+You can launch the client directly using `cargo-rurge`:
+
+```bash
+cargo rurge run
+```
+
+Or run the client crate directly via Cargo:
+
+```bash
+cargo run -p rurge-horizon
+```
+
+On startup, `rurge-horizon`:
+1. Creates and scans the local `mods/` and `shaderpacks/` directories.
+2. Unpacks the embedded default shaderpack (`test-classic-shader.zip`) into `shaderpacks/` if not present.
+3. Initializes the `RurgeEngine` runtime and mounts dynamic `.rmod` mods into the game loop.
+4. Hooks into Horizon's WGPU rendering lifecycle (`RenderHooks`, `world_drawn`, `hand_drawn`, and `shader_params`), providing safe panic boundaries and zero-cost GPU execution.
+
+---
+
+## 🌈 Classic `.zip` Shaderpacks Support (OptiFine / Iris Parity)
+
+Rurge natively supports classic OptiFine and Iris `.zip` shaderpacks without requiring third-party loader patches or external tools.
+
+### Installing Shaderpacks
+Place standard `.zip` shaderpacks into the `shaderpacks/` folder in your game root:
+
+```text
+rurge/ (or game root)
+├── mods/
+│   └── my_mod-0.1.0.rmod
+└── shaderpacks/
+    ├── ComplementaryReimagined_r5.1.1.zip
+    └── test-classic-shader.zip
+```
+
+### In-Game Activation
+Activate or switch shaderpacks seamlessly via the in-game GUI:
+> **Options** > **Horizon Settings** > **Shader Packs...**
+
+Select any discovered `.zip` pack from the list, or select `None` to restore vanilla rendering.
+
+### Embedded Test Shaderpack
+To guarantee out-of-the-box shader verification, `rurge-horizon` bundles an embedded classic shaderpack:
+- **`test-classic-shader.zip`** is embedded directly into the binary.
+- On first boot, Rurge automatically installs this pack into `shaderpacks/test-classic-shader.zip` if it is not already present, ensuring immediate testing capability without external downloads.
+
+---
+
+## 🔌 Mod Developer Shader APIs
+
+Mod developers can listen to shaderpack lifecycle events and hook into the rendering pipeline using stable C-ABI contracts.
+
+### Shaderpack Lifecycle Events
+Subscribe to shader lifecycle changes via Rurge's event bus:
+
+- **`ShaderpackLoadedEvent`**: Dispatched when a shaderpack is activated. Provides `event.pack_name` (e.g., `"test-classic-shader"`) and `event.is_classic`.
+- **`ShaderpackUnloadedEvent`**: Dispatched when shaders are deactivated and the engine returns to vanilla rendering.
+
+```rust
+use rurge_api::events::{ShaderpackLoadedEvent, ShaderpackUnloadedEvent};
+
+pub fn on_shaderpack_loaded(event: &ShaderpackLoadedEvent) {
+    println!("Active shaderpack changed to: {}", event.pack_name.as_str());
+}
+
+pub fn on_shaderpack_unloaded(_event: &ShaderpackUnloadedEvent) {
+    println!("Shaderpack unloaded; restored vanilla pipeline");
+}
+```
+
+### Render Pipeline Hooks
+Inject custom rendering passes and observe frame state:
+
+- **`RenderPipelineHooks::register_world_drawn(mod_id, callback)`**: Executed immediately after 3D terrain and world geometry are rendered.
+- **`RenderPipelineHooks::register_hand_drawn(mod_id, callback)`**: Executed after the first-person hand and held item are drawn.
+- **`RenderPassContext`**: Passed across FFI to render hooks, providing frame metrics and camera uniforms:
+  - `viewport_width`, `viewport_height`
+  - `partial_tick`
+  - `camera_pos: [f64; 3]`
+  - `view_matrix: [f32; 16]`
+
+All hook executions are isolated inside secondary command encoders and panic boundaries (`catch_unwind`). A failure or panic inside a mod's render hook will never crash Horizon or poison the GPU command encoder.
+
+### Reference Example Mod
+For a full working demonstration of listening to shader lifecycle events and querying `RenderPassContext`, see:
+- [`examples/shader-hud-mod`](examples/shader-hud-mod): An example HUD mod that displays active shaderpack status, camera coordinates, and viewport dimensions.
 
 ---
 

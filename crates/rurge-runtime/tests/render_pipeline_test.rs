@@ -31,7 +31,8 @@ fn test_render_pipeline_world_drawn_and_panic_isolation() {
     };
 
     // Execute with blamer isolation
-    hooks.execute_world_drawn(&ctx, &blamer);
+    let ok = hooks.execute_world_drawn(&ctx, &blamer);
+    assert!(!ok, "execute_world_drawn must return false when a hook panics");
 
     assert!(*executed.lock().unwrap(), "Valid hook must have executed");
     assert_eq!(blamer.recent_panics().len(), 1, "Panic must be trapped and blamed");
@@ -65,7 +66,8 @@ fn test_render_pipeline_hand_drawn_and_panic_isolation() {
     };
 
     // Execute with blamer isolation
-    hooks.execute_hand_drawn(&ctx, &blamer);
+    let ok = hooks.execute_hand_drawn(&ctx, &blamer);
+    assert!(!ok, "execute_hand_drawn must return false when a hook panics");
 
     assert!(*executed.lock().unwrap(), "Valid hook must have executed");
     assert_eq!(blamer.recent_panics().len(), 1, "Panic must be trapped and blamed");
@@ -77,6 +79,9 @@ fn test_render_pipeline_hand_drawn_and_panic_isolation() {
 fn test_engine_render_hooks_delegation() {
     let temp_dir = tempfile::tempdir().expect("tempdir");
     let engine = RurgeEngine::with_dirs(temp_dir.path().join("mods"), temp_dir.path().join("cache"));
+
+    assert!(!engine.has_world_drawn_hooks());
+    assert!(!engine.has_hand_drawn_hooks());
 
     let world_executed = Arc::new(Mutex::new(false));
     let world_clone = world_executed.clone();
@@ -90,6 +95,9 @@ fn test_engine_render_hooks_delegation() {
         *hand_clone.lock().unwrap() = true;
     }));
 
+    assert!(engine.has_world_drawn_hooks());
+    assert!(engine.has_hand_drawn_hooks());
+
     let ctx = RenderPassContext {
         viewport_width: 1280,
         viewport_height: 720,
@@ -98,9 +106,11 @@ fn test_engine_render_hooks_delegation() {
         view_matrix: [0.0; 16],
     };
 
-    engine.execute_world_drawn(&ctx);
-    engine.execute_hand_drawn(&ctx);
+    let world_ok = engine.execute_world_drawn(&ctx);
+    let hand_ok = engine.execute_hand_drawn(&ctx);
 
+    assert!(world_ok);
+    assert!(hand_ok);
     assert!(*world_executed.lock().unwrap());
     assert!(*hand_executed.lock().unwrap());
 }

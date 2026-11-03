@@ -57,4 +57,7 @@ fn main() {
 
     // 9. Launch client via horizon_client::entry::main_with.
     horizon_client::entry::main_with(mods);
+
+    // 10. Cleanly shut down engine and mod plugins on client exit.
+    engine.shutdown();
 }

@@ -141,6 +141,16 @@ impl RenderPipelineHooks {
         }
     }
 
+    /// Returns whether any world-drawn render hooks are registered.
+    pub fn has_world_drawn_hooks(&self) -> bool {
+        !self.world_drawn_hooks.read().is_empty()
+    }
+
+    /// Returns whether any hand-drawn render hooks are registered.
+    pub fn has_hand_drawn_hooks(&self) -> bool {
+        !self.hand_drawn_hooks.read().is_empty()
+    }
+
     /// Registers a custom world-drawn hook callback attributed to `mod_id`.
     pub fn register_world_drawn(
         &self,
@@ -167,14 +177,16 @@ impl RenderPipelineHooks {
     ///
     /// If any mod panics, `safe_invoke` captures the incident, attributes it to `mod_id`,
     /// records it in `blamer`, and suppresses further crashes so rendering continues.
+    /// Returns `true` if all hooks executed successfully, or `false` if any hook panicked.
     pub fn execute_world_drawn(
         &self,
         ctx: &ApiRenderPassContext,
         blamer: &Blamer,
-    ) {
+    ) -> bool {
         let lock = self.world_drawn_hooks.read();
+        let mut all_ok = true;
         for (mod_id, hook) in lock.iter() {
-            let _ = safe_invoke(
+            let res = safe_invoke(
                 mod_id,
                 "world_drawn",
                 blamer,
@@ -182,21 +194,27 @@ impl RenderPipelineHooks {
                     hook(ctx);
                 }),
             );
+            if res.is_err() {
+                all_ok = false;
+            }
         }
+        all_ok
     }
 
     /// Executes all registered hand-drawn hooks within safe panic boundaries.
     ///
     /// If any mod panics, `safe_invoke` captures the incident, attributes it to `mod_id`,
     /// records it in `blamer`, and suppresses further crashes so rendering continues.
+    /// Returns `true` if all hooks executed successfully, or `false` if any hook panicked.
     pub fn execute_hand_drawn(
         &self,
         ctx: &ApiRenderPassContext,
         blamer: &Blamer,
-    ) {
+    ) -> bool {
         let lock = self.hand_drawn_hooks.read();
+        let mut all_ok = true;
         for (mod_id, hook) in lock.iter() {
-            let _ = safe_invoke(
+            let res = safe_invoke(
                 mod_id,
                 "hand_drawn",
                 blamer,
@@ -204,6 +222,10 @@ impl RenderPipelineHooks {
                     hook(ctx);
                 }),
             );
+            if res.is_err() {
+                all_ok = false;
+            }
         }
+        all_ok
     }
 }

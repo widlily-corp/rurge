@@ -1,5 +1,7 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use parking_lot::RwLock;
 use rurge_api::events::RenderPassContext;
 use rurge_api::lifecycle::{InitEvent, PreInitEvent, ServerStoppingEvent};
 use rurge_api::RurgeContext;
@@ -36,10 +38,11 @@ pub struct RurgeEngine {
     cache_dir: PathBuf,
     blamer: Arc<Blamer>,
     event_bus: Arc<EventBus>,
-    mod_manager: ModManager,
+    mod_manager: RwLock<ModManager>,
     render_hooks: RenderPipelineHooks,
     tick_hooks: TickHooks,
-    initialized: bool,
+    initialized: AtomicBool,
+    shader_uniforms: RwLock<[[f32; 4]; 8]>,
 }
 
 impl RurgeEngine {
@@ -52,7 +55,7 @@ impl RurgeEngine {
     pub fn with_dirs(mods_dir: impl Into<PathBuf>, cache_dir: impl Into<PathBuf>) -> Self {
         let blamer = Arc::new(Blamer::new());
         let event_bus = Arc::new(EventBus::new());
-        let mod_manager = ModManager::new(Arc::clone(&blamer));
+        let mod_manager = RwLock::new(ModManager::new(Arc::clone(&blamer)));
         let render_hooks = RenderPipelineHooks::new();
         let tick_hooks = TickHooks::new();
 
@@ -64,7 +67,8 @@ impl RurgeEngine {
             mod_manager,
             render_hooks,
             tick_hooks,
-            initialized: false,
+            initialized: AtomicBool::new(false),
+            shader_uniforms: RwLock::new([[0.0f32; 4]; 8]),
         }
     }
 
@@ -80,7 +84,7 @@ impl RurgeEngine {
     /// Initializes the engine, discovers and loads mods, invokes plugin `on_initialize`,
     /// and fires lifecycle events (`PreInitEvent` and `InitEvent`).
     pub fn initialize(&mut self) -> Result<(), RuntimeError> {
-        if self.initialized {
+        if self.initialized.load(Ordering::SeqCst) {
             return Err(RuntimeError::AlreadyInitialized);
         }
 
@@ -92,7 +96,7 @@ impl RurgeEngine {
             std::fs::create_dir_all(&self.cache_dir)?;
         }
 
-        self.mod_manager.load_mods(&self.mods_dir, &self.cache_dir)?;
+        self.mod_manager.write().load_mods(&self.mods_dir, &self.cache_dir)?;
 
         // 2. Create RurgeContext.
         let ctx = RurgeContext::new(
@@ -102,8 +106,10 @@ impl RurgeEngine {
             self.cache_dir.to_string_lossy().to_string(),
         );
 
+        let loaded_plugins = self.mod_manager.read().loaded_plugins();
+
         // 3. Invoke `on_initialize` on all loaded plugins inside `safe_invoke`.
-        for plugin_arc in self.mod_manager.loaded_plugins() {
+        for plugin_arc in &loaded_plugins {
             let mod_id = plugin_arc.manifest.id.clone();
             let plugin_clone = Arc::clone(plugin_arc);
             let mut ctx_clone = ctx.clone();
@@ -122,47 +128,49 @@ impl RurgeEngine {
         // 4. Dispatches PreInitEvent and InitEvent.
         let mut pre_init = PreInitEvent::new("rurge");
         self.event_bus.dispatch(&mut pre_init);
-        for plugin in self.mod_manager.loaded_plugins() {
+        for plugin in &loaded_plugins {
             let mut mod_pre_init = PreInitEvent::new(plugin.manifest.id.as_str());
             self.event_bus.dispatch(&mut mod_pre_init);
         }
 
         let mut init = InitEvent::new("rurge");
         self.event_bus.dispatch(&mut init);
-        for plugin in self.mod_manager.loaded_plugins() {
+        for plugin in &loaded_plugins {
             let mut mod_init = InitEvent::new(plugin.manifest.id.as_str());
             self.event_bus.dispatch(&mut mod_init);
         }
 
-        self.initialized = true;
+        self.initialized.store(true, Ordering::SeqCst);
         Ok(())
     }
 
     /// Returns whether the engine has completed its initialization phase.
     pub fn is_initialized(&self) -> bool {
-        self.initialized
+        self.initialized.load(Ordering::SeqCst)
     }
 
     /// Dispatches client tick event through `event_bus` and executes registered tick handlers.
-    pub fn client_tick(&mut self, tick_count: u64) {
+    pub fn client_tick(&self, tick_count: u64) {
         let mut event = ClientTickEvent { tick_count };
         self.event_bus.dispatch(&mut event);
         self.tick_hooks.execute_client_ticks(tick_count, &self.blamer);
     }
 
     /// Dispatches server tick event through `event_bus` and executes registered server tick handlers.
-    pub fn server_tick(&mut self, tick_count: u64) {
+    pub fn server_tick(&self, tick_count: u64) {
         let mut event = ServerTickEvent { tick_count };
         self.event_bus.dispatch(&mut event);
         self.tick_hooks.execute_server_ticks(tick_count, &self.blamer);
     }
 
     /// Shuts down the engine, firing `ServerStoppingEvent` and invoking `on_shutdown` on all plugins.
-    pub fn shutdown(&mut self) {
+    pub fn shutdown(&self) {
+        if !self.initialized.swap(false, Ordering::SeqCst) {
+            return;
+        }
         let mut stopping = ServerStoppingEvent;
         self.event_bus.dispatch(&mut stopping);
-        self.mod_manager.shutdown_all();
-        self.initialized = false;
+        self.mod_manager.write().shutdown_all();
     }
 
     /// Returns a reference to the shared event bus.
@@ -185,14 +193,27 @@ impl RurgeEngine {
         &mut self.render_hooks
     }
 
-    /// Returns a reference to the mod manager.
-    pub fn mod_manager(&self) -> &ModManager {
-        &self.mod_manager
+    /// Returns a read guard to the mod manager.
+    pub fn mod_manager(&self) -> parking_lot::RwLockReadGuard<'_, ModManager> {
+        self.mod_manager.read()
     }
 
     /// Returns a mutable reference to the mod manager.
     pub fn mod_manager_mut(&mut self) -> &mut ModManager {
-        &mut self.mod_manager
+        self.mod_manager.get_mut()
+    }
+
+    /// Sets the custom shader uniform vector at the specified index (`0..8`).
+    pub fn set_shader_uniform(&self, slot: usize, value: [f32; 4]) {
+        if slot < 8 {
+            let mut uniforms = self.shader_uniforms.write();
+            uniforms[slot] = value;
+        }
+    }
+
+    /// Returns the current custom shader uniform vectors (`8` vectors of `[f32; 4]`).
+    pub fn get_shader_uniforms(&self) -> [[f32; 4]; 8] {
+        *self.shader_uniforms.read()
     }
 
     /// Returns a reference to the tick hooks registry.
@@ -239,14 +260,26 @@ impl RurgeEngine {
         self.render_hooks.register_hand_drawn(mod_id, hook);
     }
 
+    /// Returns whether any world-drawn render hooks are currently registered.
+    pub fn has_world_drawn_hooks(&self) -> bool {
+        self.render_hooks.has_world_drawn_hooks()
+    }
+
+    /// Returns whether any hand-drawn render hooks are currently registered.
+    pub fn has_hand_drawn_hooks(&self) -> bool {
+        self.render_hooks.has_hand_drawn_hooks()
+    }
+
     /// Executes all registered world-drawn hooks within safe panic boundaries.
-    pub fn execute_world_drawn(&self, ctx: &RenderPassContext) {
-        self.render_hooks.execute_world_drawn(ctx, &self.blamer);
+    /// Returns `true` if all hooks executed successfully, or `false` if any hook panicked.
+    pub fn execute_world_drawn(&self, ctx: &RenderPassContext) -> bool {
+        self.render_hooks.execute_world_drawn(ctx, &self.blamer)
     }
 
     /// Executes all registered hand-drawn hooks within safe panic boundaries.
-    pub fn execute_hand_drawn(&self, ctx: &RenderPassContext) {
-        self.render_hooks.execute_hand_drawn(ctx, &self.blamer);
+    /// Returns `true` if all hooks executed successfully, or `false` if any hook panicked.
+    pub fn execute_hand_drawn(&self, ctx: &RenderPassContext) -> bool {
+        self.render_hooks.execute_hand_drawn(ctx, &self.blamer)
     }
 }
 

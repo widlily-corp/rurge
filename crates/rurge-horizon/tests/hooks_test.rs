@@ -1,6 +1,7 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use horizon_client::mod_api::Hooks;
+use rurge_api::events::{ShaderpackLoadedEvent, ShaderpackUnloadedEvent};
 use rurge_horizon::hooks::RurgeHorizonHooks;
 use rurge_runtime::engine::RurgeEngine;
 
@@ -10,9 +11,12 @@ fn test_rurge_horizon_hooks_creation_and_render_query() {
     let hooks = RurgeHorizonHooks::new(engine.clone());
 
     assert!(hooks.render().is_some(), "RenderHooks must be provided");
+    assert!(!engine.has_world_drawn_hooks(), "Initially no world drawn hooks");
+    assert!(!engine.has_hand_drawn_hooks(), "Initially no hand drawn hooks");
 
     let mut params = [[0.0f32; 4]; 8];
     hooks.shader_params(&mut params);
+    assert_eq!(params, [[0.0; 4]; 8]);
 }
 
 #[test]
@@ -26,6 +30,8 @@ fn test_rurge_horizon_hooks_engine_dispatch() {
         *val = true;
     }));
 
+    assert!(engine.has_world_drawn_hooks(), "World drawn hooks now present");
+
     let hooks = RurgeHorizonHooks::new(engine.clone());
     let ctx = rurge_api::events::RenderPassContext {
         viewport_width: 1920,
@@ -35,7 +41,8 @@ fn test_rurge_horizon_hooks_engine_dispatch() {
         view_matrix: [1.0; 16],
     };
 
-    hooks.engine.execute_world_drawn(&ctx);
+    let ok = hooks.engine.execute_world_drawn(&ctx);
+    assert!(ok, "Execution must succeed when hooks do not panic");
     assert!(*executed.lock().unwrap(), "Hook must have executed through engine");
 }
 
@@ -50,6 +57,8 @@ fn test_rurge_horizon_hooks_hand_drawn_dispatch() {
         *val = true;
     }));
 
+    assert!(engine.has_hand_drawn_hooks(), "Hand drawn hooks now present");
+
     let hooks = RurgeHorizonHooks::new(engine.clone());
     let ctx = rurge_api::events::RenderPassContext {
         viewport_width: 1920,
@@ -59,7 +68,8 @@ fn test_rurge_horizon_hooks_hand_drawn_dispatch() {
         view_matrix: [1.0; 16],
     };
 
-    hooks.engine.execute_hand_drawn(&ctx);
+    let ok = hooks.engine.execute_hand_drawn(&ctx);
+    assert!(ok, "Execution must succeed when hand drawn hooks do not panic");
     assert!(*executed.lock().unwrap(), "Hand drawn hook must have executed through engine");
 }
 
@@ -83,8 +93,102 @@ fn test_rurge_horizon_hooks_panic_isolation() {
         view_matrix: [1.0; 16],
     };
 
-    // Safe execution boundary should catch panic and not crash test runner
-    hooks.engine.execute_world_drawn(&ctx);
+    // Safe execution boundary should catch panic and return false
+    let ok = hooks.engine.execute_world_drawn(&ctx);
+    assert!(!ok, "execute_world_drawn must report false when a mod hook panics");
     assert!(hook_ran.load(Ordering::SeqCst));
     assert_eq!(hooks.engine.blamer().panic_count_for_mod("faulty-mod"), 1);
+}
+
+#[test]
+fn test_rurge_horizon_shader_uniforms_transfer() {
+    let engine = Arc::new(RurgeEngine::new());
+    engine.set_shader_uniform(0, [1.0, 2.0, 3.0, 4.0]);
+    engine.set_shader_uniform(7, [5.5, 6.5, 7.5, 8.5]);
+
+    let hooks = RurgeHorizonHooks::new(engine.clone());
+    let mut params = [[0.0f32; 4]; 8];
+    hooks.shader_params(&mut params);
+
+    assert_eq!(params[0], [1.0, 2.0, 3.0, 4.0]);
+    assert_eq!(params[1], [0.0, 0.0, 0.0, 0.0]);
+    assert_eq!(params[7], [5.5, 6.5, 7.5, 8.5]);
+}
+
+#[test]
+fn test_rurge_horizon_shader_transition_dispatch() {
+    let engine = Arc::new(RurgeEngine::new());
+    let event_bus = engine.event_bus();
+
+    let loaded_count = Arc::new(AtomicUsize::new(0));
+    let last_loaded_name = Arc::new(Mutex::new(String::new()));
+    let loaded_count_clone = loaded_count.clone();
+    let last_loaded_name_clone = last_loaded_name.clone();
+
+    event_bus.register(0, move |event: &ShaderpackLoadedEvent| {
+        loaded_count_clone.fetch_add(1, Ordering::SeqCst);
+        let mut name = last_loaded_name_clone.lock().unwrap();
+        *name = event.pack_name.as_str().to_string();
+    });
+
+    let unloaded_count = Arc::new(AtomicUsize::new(0));
+    let unloaded_count_clone = unloaded_count.clone();
+
+    event_bus.register(0, move |_event: &ShaderpackUnloadedEvent| {
+        unloaded_count_clone.fetch_add(1, Ordering::SeqCst);
+    });
+
+    let hooks = RurgeHorizonHooks::new(engine.clone());
+
+    // 1. Transition from None to Some("Solas.zip")
+    hooks.check_and_dispatch_shader_transition(Some("Solas.zip".to_string()));
+    assert_eq!(loaded_count.load(Ordering::SeqCst), 1);
+    assert_eq!(*last_loaded_name.lock().unwrap(), "Solas.zip");
+    assert_eq!(hooks.current_shader().as_deref(), Some("Solas.zip"));
+
+    // 2. Call again with same shader - no duplicate event should fire
+    hooks.check_and_dispatch_shader_transition(Some("Solas.zip".to_string()));
+    assert_eq!(loaded_count.load(Ordering::SeqCst), 1);
+
+    // 3. Transition to None (unloaded)
+    hooks.check_and_dispatch_shader_transition(None);
+    assert_eq!(unloaded_count.load(Ordering::SeqCst), 1);
+    assert_eq!(hooks.current_shader(), None);
+
+    // 4. Call again with None - no duplicate event
+    hooks.check_and_dispatch_shader_transition(None);
+    assert_eq!(unloaded_count.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn test_rurge_horizon_active_shaderpack_query_from_file() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let graphics_file = temp_dir.path().join("horizon-graphics.txt");
+
+    std::fs::write(&graphics_file, "preset:custom\npickedShaderPack:Complementary.zip\nfxaa:true\n")
+        .expect("write graphics config");
+
+    let pack = RurgeHorizonHooks::query_active_shaderpack_in(temp_dir.path());
+    assert_eq!(pack.as_deref(), Some("Complementary.zip"));
+
+    // Overwrite with empty
+    std::fs::write(&graphics_file, "preset:custom\npickedShaderPack:\nfxaa:true\n")
+        .expect("write empty shaderpack");
+
+    let pack_empty = RurgeHorizonHooks::query_active_shaderpack_in(temp_dir.path());
+    assert_eq!(pack_empty, None);
+
+    // Non-existent dir
+    let non_existent = temp_dir.path().join("sub");
+    assert_eq!(RurgeHorizonHooks::query_active_shaderpack_in(&non_existent), None);
+}
+
+#[test]
+fn test_arc_engine_shutdown() {
+    let engine = Arc::new(RurgeEngine::new());
+    assert!(!engine.is_initialized());
+
+    // Shutdown can be invoked directly on Arc<RurgeEngine> without panic
+    engine.shutdown();
+    assert!(!engine.is_initialized());
 }

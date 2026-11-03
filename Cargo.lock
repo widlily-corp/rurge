@@ -3499,11 +3499,13 @@ dependencies = [
 name = "rurge-horizon"
 version = "0.1.0"
 dependencies = [
+ "abi_stable",
  "env_logger",
  "horizon-client",
  "horizon-client-render",
  "horizon-shaders",
  "log",
+ "parking_lot",
  "rurge-api",
  "rurge-blamer",
  "rurge-core",

@@ -65,9 +65,9 @@ impl ModManager {
         &self.blamer
     }
 
-    /// Returns a slice of all currently loaded mod plugins.
-    pub fn loaded_plugins(&self) -> &[Arc<LoadedPlugin>] {
-        &self.loaded_plugins
+    /// Returns a vector of all currently loaded mod plugins.
+    pub fn loaded_plugins(&self) -> Vec<Arc<LoadedPlugin>> {
+        self.loaded_plugins.clone()
     }
 
     /// Scans `mods_dir` for files ending with `.rmod` and opens them.

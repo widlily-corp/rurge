@@ -14,6 +14,8 @@ rurge-runtime = { path = "../rurge-runtime" }
 horizon-client = { path = "../../../horizon/crates/horizon-client" }
 horizon-client-render = { path = "../../../horizon/crates/horizon-client-render" }
 horizon-shaders = { path = "../../../horizon/crates/horizon-shaders" }
+abi_stable = { workspace = true }
+parking_lot = "0.12"
 wgpu = { version = "30.0.1", default-features = false }
 log = "0.4"
 env_logger = "0.11"

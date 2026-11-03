@@ -9,13 +9,7 @@ use rurge_horizon::shaderpack_bundle::ensure_default_shaderpack_installed;
 use rurge_runtime::engine::RurgeEngine;
 
 fn main() {
-    // 1. Initialize env_logger.
-    env_logger::init();
-
-    // 2. Log banner.
-    log::info!("Starting Rurge Horizon Native Client...");
-
-    // 3. Ensure "mods" and "shaderpacks" folders exist.
+    // 1. Ensure "mods" and "shaderpacks" folders exist.
     let mods_dir = Path::new("mods");
     let shaderpacks_dir = Path::new("shaderpacks");
 

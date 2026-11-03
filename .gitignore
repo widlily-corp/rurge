@@ -4,8 +4,13 @@
 *.rmod
 /.local
 /.horizon-cache
+/.cache
 horizon-graphics.txt
+horizon_official_server.txt
+servers.dat
 options.txt
 shaderpacks/
 mods/
+run.log
+
 

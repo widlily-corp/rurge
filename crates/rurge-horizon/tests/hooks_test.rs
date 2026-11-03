@@ -6,7 +6,7 @@ use rurge_runtime::engine::RurgeEngine;
 
 #[test]
 fn test_rurge_horizon_hooks_creation_and_render_query() {
-    let engine = Arc::new(RurgeEngine::new("mods", ".cache"));
+    let engine = Arc::new(RurgeEngine::new());
     let hooks = RurgeHorizonHooks::new(engine.clone());
 
     assert!(hooks.render().is_some(), "RenderHooks must be provided");
@@ -17,7 +17,7 @@ fn test_rurge_horizon_hooks_creation_and_render_query() {
 
 #[test]
 fn test_rurge_horizon_hooks_engine_dispatch() {
-    let engine = Arc::new(RurgeEngine::new("mods", ".cache"));
+    let engine = Arc::new(RurgeEngine::new());
     let executed = Arc::new(Mutex::new(false));
     let executed_clone = executed.clone();
 
@@ -41,7 +41,7 @@ fn test_rurge_horizon_hooks_engine_dispatch() {
 
 #[test]
 fn test_rurge_horizon_hooks_hand_drawn_dispatch() {
-    let engine = Arc::new(RurgeEngine::new("mods", ".cache"));
+    let engine = Arc::new(RurgeEngine::new());
     let executed = Arc::new(Mutex::new(false));
     let executed_clone = executed.clone();
 
@@ -65,7 +65,7 @@ fn test_rurge_horizon_hooks_hand_drawn_dispatch() {
 
 #[test]
 fn test_rurge_horizon_hooks_panic_isolation() {
-    let engine = Arc::new(RurgeEngine::new("mods", ".cache"));
+    let engine = Arc::new(RurgeEngine::new());
     let hook_ran = Arc::new(AtomicBool::new(false));
     let hook_ran_clone = hook_ran.clone();
 

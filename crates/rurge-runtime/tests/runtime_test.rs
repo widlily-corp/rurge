@@ -17,7 +17,7 @@ fn test_engine_lifecycle_and_tick_loop() {
     let mods_dir = temp_dir.path().join("mods");
     let cache_dir = temp_dir.path().join("cache");
 
-    let mut engine = RurgeEngine::new(&mods_dir, &cache_dir);
+    let mut engine = RurgeEngine::with_dirs(&mods_dir, &cache_dir);
 
     let pre_init_received = Arc::new(AtomicBool::new(false));
     let pre_init_clone = Arc::clone(&pre_init_received);
@@ -278,7 +278,7 @@ fn test_world_data_attachment_empty_nbt_load() {
 #[test]
 fn test_engine_tick_hook_panic_safety() {
     let temp_dir = tempfile::tempdir().expect("Failed to create tempdir");
-    let mut engine = RurgeEngine::new(temp_dir.path().join("mods"), temp_dir.path().join("cache"));
+    let mut engine = RurgeEngine::with_dirs(temp_dir.path().join("mods"), temp_dir.path().join("cache"));
 
     // Register a panicking client tick handler
     engine.register_client_tick("faulty_tick_mod", |_tick| {

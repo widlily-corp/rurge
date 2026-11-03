@@ -39,6 +39,8 @@ rurge-blamer = { path = "crates/rurge-blamer" }
 rurge-loader = { path = "crates/rurge-loader" }
 rurge-runtime = { path = "crates/rurge-runtime" }
 cargo-rurge = { path = "crates/cargo-rurge" }
+rurge-horizon = { path = "crates/rurge-horizon" }
+horizon-client = { path = "../horizon/crates/horizon-client" }
 simple-hud-mod = { path = "examples/simple-hud-mod" }
 abi_stable = { workspace = true }
 tempfile = "3.17"

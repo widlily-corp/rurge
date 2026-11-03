@@ -76,7 +76,7 @@ fn test_render_pipeline_hand_drawn_and_panic_isolation() {
 #[test]
 fn test_engine_render_hooks_delegation() {
     let temp_dir = tempfile::tempdir().expect("tempdir");
-    let engine = RurgeEngine::new(temp_dir.path().join("mods"), temp_dir.path().join("cache"));
+    let engine = RurgeEngine::with_dirs(temp_dir.path().join("mods"), temp_dir.path().join("cache"));
 
     let world_executed = Arc::new(Mutex::new(false));
     let world_clone = world_executed.clone();

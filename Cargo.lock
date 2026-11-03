@@ -3448,10 +3448,12 @@ version = "0.1.0"
 dependencies = [
  "abi_stable",
  "cargo-rurge",
+ "horizon-client",
  "libloading 0.8.9",
  "rurge-api",
  "rurge-blamer",
  "rurge-core",
+ "rurge-horizon",
  "rurge-loader",
  "rurge-runtime",
  "simple-hud-mod",

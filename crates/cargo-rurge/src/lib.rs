@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 
 pub mod commands;
 pub mod templates;
+pub use commands::run::RunArgs;
 
 /// Unified errors for `cargo-rurge` CLI and library operations.
 #[derive(Debug, thiserror::Error)]
@@ -46,6 +47,10 @@ pub enum CargoRurgeError {
     #[error("Cargo build failed with exit code: {0:?}")]
     BuildFailed(Option<i32>),
 
+    /// Cargo run subprocess failure.
+    #[error("Cargo run failed with exit code: {0:?}")]
+    RunFailed(Option<i32>),
+
     /// Custom error message.
     #[error("{0}")]
     Custom(String),
@@ -72,6 +77,9 @@ pub enum Cli {
 
     /// Pack the mod into a .rmod ZIP package
     Pack(commands::pack::PackArgs),
+
+    /// Run the Rurge Horizon client
+    Run(commands::run::RunArgs),
 }
 
 /// Commands available under `cargo-rurge` or `cargo rurge`.
@@ -85,6 +93,9 @@ pub enum Commands {
 
     /// Pack the mod into a .rmod ZIP package
     Pack(commands::pack::PackArgs),
+
+    /// Run the Rurge Horizon client
+    Run(commands::run::RunArgs),
 }
 
 impl Cli {
@@ -98,6 +109,10 @@ impl Cli {
             }
             Cli::Build(args) => {
                 commands::build::execute(args)?;
+                Ok(())
+            }
+            Cli::Run(args) => {
+                commands::run::execute(args)?;
                 Ok(())
             }
             Cli::Pack(args) => {
@@ -118,6 +133,10 @@ impl Commands {
             }
             Commands::Build(args) => {
                 commands::build::execute(args)?;
+                Ok(())
+            }
+            Commands::Run(args) => {
+                commands::run::execute(args)?;
                 Ok(())
             }
             Commands::Pack(args) => {

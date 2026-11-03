@@ -43,8 +43,13 @@ pub struct RurgeEngine {
 }
 
 impl RurgeEngine {
+    /// Creates a new default uninitialized `RurgeEngine` pointing to standard "mods" and ".cache" directories.
+    pub fn new() -> Self {
+        Self::with_dirs("mods", ".cache")
+    }
+
     /// Creates a new uninitialized `RurgeEngine` pointing to the specified mods and cache directories.
-    pub fn new(mods_dir: impl Into<PathBuf>, cache_dir: impl Into<PathBuf>) -> Self {
+    pub fn with_dirs(mods_dir: impl Into<PathBuf>, cache_dir: impl Into<PathBuf>) -> Self {
         let blamer = Arc::new(Blamer::new());
         let event_bus = Arc::new(EventBus::new());
         let mod_manager = ModManager::new(Arc::clone(&blamer));
@@ -67,7 +72,7 @@ impl RurgeEngine {
     pub fn bootstrap(mods_dir: impl Into<PathBuf>) -> Result<Self, RuntimeError> {
         let mods_dir = mods_dir.into();
         let cache_dir = mods_dir.join(".cache");
-        let mut engine = Self::new(mods_dir, cache_dir);
+        let mut engine = Self::with_dirs(mods_dir, cache_dir);
         engine.initialize()?;
         Ok(engine)
     }
@@ -242,5 +247,11 @@ impl RurgeEngine {
     /// Executes all registered hand-drawn hooks within safe panic boundaries.
     pub fn execute_hand_drawn(&self, ctx: &RenderPassContext) {
         self.render_hooks.execute_hand_drawn(ctx, &self.blamer);
+    }
+}
+
+impl Default for RurgeEngine {
+    fn default() -> Self {
+        Self::new()
     }
 }

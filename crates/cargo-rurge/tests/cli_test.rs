@@ -39,6 +39,28 @@ fn test_cli_parsing_direct_and_cargo_subcommand() {
         }
         _ => panic!("Expected Cli::Pack"),
     }
+
+    // Direct run invocation
+    let run_cli = Cli::try_parse_from(["cargo-rurge", "run", "--release", "--", "--custom-arg"])
+        .expect("Failed to parse run CLI");
+    match run_cli {
+        Cli::Run(args) => {
+            assert!(args.release);
+            assert_eq!(args.args, vec!["--custom-arg"]);
+        }
+        _ => panic!("Expected Cli::Run"),
+    }
+
+    // Cargo subcommand run invocation
+    let cargo_run = Cli::try_parse_from(["cargo-rurge", "rurge", "run"])
+        .expect("Failed to parse cargo rurge run");
+    match cargo_run {
+        Cli::Rurge(Commands::Run(args)) => {
+            assert!(!args.release);
+            assert!(args.args.is_empty());
+        }
+        _ => panic!("Expected Cli::Rurge(Commands::Run)"),
+    }
 }
 
 #[test]

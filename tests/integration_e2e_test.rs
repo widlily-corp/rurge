@@ -64,7 +64,7 @@ fn test_end_to_end_simple_hud_mod_lifecycle() {
     assert_eq!(manifest.environment, ModEnvironment::Client);
 
     // 2. Initialize RurgeEngine pointing to the mods directory
-    let mut engine = RurgeEngine::new(&mods_dir, &cache_dir);
+    let mut engine = RurgeEngine::with_dirs(&mods_dir, &cache_dir);
     assert!(!engine.is_initialized(), "Engine must initially be uninitialized");
 
     // Track lifecycle events dispatched on the EventBus

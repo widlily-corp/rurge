@@ -1,3 +1,9 @@
+fn pack_has_stage(pack: &horizon_shaders::Pack, stage: &str) -> bool {
+    [".fsh", ".vsh", ".csh", ".gsh"]
+        .iter()
+        .any(|ext| pack.exists(&format!("{stage}{ext}")))
+}
+
 #[test]
 fn test_shaderpack_bundle_installation_and_validation() {
     let tmp = tempfile::tempdir().unwrap();
@@ -14,10 +20,17 @@ fn test_shaderpack_bundle_installation_and_validation() {
     // Verify horizon-shaders recognizes and parses this pack
     let pack = horizon_shaders::Pack::open(&pack_path)
         .expect("Pack must be recognized by horizon-shaders");
-    assert!(pack.has_stage("final"));
-    assert!(pack.has_stage("composite"));
-    assert!(pack.has_stage("gbuffers_terrain"));
+    assert!(pack.exists("final.fsh"));
+    assert!(pack.exists("final.vsh"));
+    assert!(pack.exists("composite.fsh"));
+    assert!(pack.exists("composite.vsh"));
+    assert!(pack.exists("gbuffers_terrain.fsh"));
+    assert!(pack.exists("gbuffers_terrain.vsh"));
     assert!(pack.exists("shaders.properties"));
+
+    assert!(pack_has_stage(&pack, "final"));
+    assert!(pack_has_stage(&pack, "composite"));
+    assert!(pack_has_stage(&pack, "gbuffers_terrain"));
 
     // Verify idempotency: calling ensure_default_shaderpack_installed again returns existing path
     let second_path =
@@ -30,7 +43,8 @@ fn test_shaderpack_bundle_installation_and_validation() {
         .expect("build_shaderpack_zip_bytes must succeed");
     let in_memory_pack = horizon_shaders::Pack::from_zip_bytes("in_memory.zip", bytes)
         .expect("in-memory zip bytes must be valid pack");
-    assert!(in_memory_pack.has_stage("final"));
-    assert!(in_memory_pack.has_stage("composite"));
-    assert!(in_memory_pack.has_stage("gbuffers_terrain"));
+    assert!(pack_has_stage(&in_memory_pack, "final"));
+    assert!(pack_has_stage(&in_memory_pack, "composite"));
+    assert!(pack_has_stage(&in_memory_pack, "gbuffers_terrain"));
+    assert!(in_memory_pack.exists("shaders.properties"));
 }

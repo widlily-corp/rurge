@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use parking_lot::RwLock;
+use rurge_api::events::RenderPassContext as ApiRenderPassContext;
 use rurge_blamer::{safe_invoke, Blamer};
 
 /// Phases in the rendering pipeline where mods can inject custom passes.
@@ -63,6 +64,8 @@ struct RenderHookEntry {
 #[derive(Default)]
 pub struct RenderPipelineHooks {
     passes: RwLock<HashMap<RenderPassPhase, Vec<RenderHookEntry>>>,
+    world_drawn_hooks: RwLock<Vec<(String, Box<dyn Fn(&ApiRenderPassContext) + Send + Sync>)>>,
+    hand_drawn_hooks: RwLock<Vec<(String, Box<dyn Fn(&ApiRenderPassContext) + Send + Sync>)>>,
 }
 
 impl RenderPipelineHooks {
@@ -134,6 +137,72 @@ impl RenderPipelineHooks {
                     }),
                 );
             }
+        }
+    }
+
+    /// Registers a custom world-drawn hook callback attributed to `mod_id`.
+    pub fn register_world_drawn(
+        &self,
+        mod_id: impl Into<String>,
+        hook: Box<dyn Fn(&ApiRenderPassContext) + Send + Sync>,
+    ) {
+        self.world_drawn_hooks
+            .write()
+            .push((mod_id.into(), hook));
+    }
+
+    /// Registers a custom hand-drawn hook callback attributed to `mod_id`.
+    pub fn register_hand_drawn(
+        &self,
+        mod_id: impl Into<String>,
+        hook: Box<dyn Fn(&ApiRenderPassContext) + Send + Sync>,
+    ) {
+        self.hand_drawn_hooks
+            .write()
+            .push((mod_id.into(), hook));
+    }
+
+    /// Executes all registered world-drawn hooks within safe panic boundaries.
+    ///
+    /// If any mod panics, `safe_invoke` captures the incident, attributes it to `mod_id`,
+    /// records it in `blamer`, and suppresses further crashes so rendering continues.
+    pub fn execute_world_drawn(
+        &self,
+        ctx: &ApiRenderPassContext,
+        blamer: &Blamer,
+    ) {
+        let lock = self.world_drawn_hooks.read();
+        for (mod_id, hook) in lock.iter() {
+            let _ = safe_invoke(
+                mod_id,
+                "world_drawn",
+                blamer,
+                std::panic::AssertUnwindSafe(|| {
+                    hook(ctx);
+                }),
+            );
+        }
+    }
+
+    /// Executes all registered hand-drawn hooks within safe panic boundaries.
+    ///
+    /// If any mod panics, `safe_invoke` captures the incident, attributes it to `mod_id`,
+    /// records it in `blamer`, and suppresses further crashes so rendering continues.
+    pub fn execute_hand_drawn(
+        &self,
+        ctx: &ApiRenderPassContext,
+        blamer: &Blamer,
+    ) {
+        let lock = self.hand_drawn_hooks.read();
+        for (mod_id, hook) in lock.iter() {
+            let _ = safe_invoke(
+                mod_id,
+                "hand_drawn",
+                blamer,
+                std::panic::AssertUnwindSafe(|| {
+                    hook(ctx);
+                }),
+            );
         }
     }
 }

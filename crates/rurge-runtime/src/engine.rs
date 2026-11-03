@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use rurge_api::events::RenderPassContext;
 use rurge_api::lifecycle::{InitEvent, PreInitEvent, ServerStoppingEvent};
 use rurge_api::RurgeContext;
 use rurge_blamer::{safe_invoke, Blamer, PanicError};
@@ -7,7 +8,7 @@ use rurge_core::EventBus;
 use rurge_loader::{LoaderError, ModManager};
 
 use crate::hooks::{ClientTickEvent, ServerTickEvent, TickHooks};
-use crate::render_hooks::RenderPipelineHooks;
+use crate::render::RenderPipelineHooks;
 
 /// Errors that can occur during runtime engine initialization and execution.
 #[derive(Debug, thiserror::Error)]
@@ -213,5 +214,33 @@ impl RurgeEngine {
         F: Fn(u64) + Send + Sync + 'static,
     {
         self.tick_hooks.register_server_tick(mod_id, handler);
+    }
+
+    /// Convenience helper to register a world-drawn render hook.
+    pub fn register_world_drawn_hook(
+        &self,
+        mod_id: impl Into<String>,
+        hook: Box<dyn Fn(&RenderPassContext) + Send + Sync>,
+    ) {
+        self.render_hooks.register_world_drawn(mod_id, hook);
+    }
+
+    /// Convenience helper to register a hand-drawn render hook.
+    pub fn register_hand_drawn_hook(
+        &self,
+        mod_id: impl Into<String>,
+        hook: Box<dyn Fn(&RenderPassContext) + Send + Sync>,
+    ) {
+        self.render_hooks.register_hand_drawn(mod_id, hook);
+    }
+
+    /// Executes all registered world-drawn hooks within safe panic boundaries.
+    pub fn execute_world_drawn(&self, ctx: &RenderPassContext) {
+        self.render_hooks.execute_world_drawn(ctx, &self.blamer);
+    }
+
+    /// Executes all registered hand-drawn hooks within safe panic boundaries.
+    pub fn execute_hand_drawn(&self, ctx: &RenderPassContext) {
+        self.render_hooks.execute_hand_drawn(ctx, &self.blamer);
     }
 }

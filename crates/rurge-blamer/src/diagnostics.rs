@@ -46,6 +46,11 @@ impl Blamer {
         self.records.read().iter().cloned().collect()
     }
 
+    /// Returns a copy of recent recorded panic incidents (alias for `get_recent_panics`).
+    pub fn recent_panics(&self) -> Vec<BlameRecord> {
+        self.get_recent_panics()
+    }
+
     /// Returns the cumulative number of panics attributed to a given mod ID in O(1) time.
     pub fn panic_count_for_mod(&self, mod_id: &str) -> usize {
         self.panic_counts

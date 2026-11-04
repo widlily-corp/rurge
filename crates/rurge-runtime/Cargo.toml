@@ -12,10 +12,12 @@ rurge-api = { path = "../rurge-api" }
 rurge-core = { path = "../rurge-core" }
 rurge-blamer = { path = "../rurge-blamer" }
 rurge-loader = { path = "../rurge-loader" }
+rurge-converter = { path = "../rurge-converter" }
 parking_lot = "0.12"
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+log = "0.4"
 
 [dev-dependencies]
 tempfile = "3.17"

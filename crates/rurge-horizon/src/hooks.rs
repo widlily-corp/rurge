@@ -130,15 +130,28 @@ impl RurgeHorizonHooks {
         let loaded_plugins = self.engine.mod_manager().loaded_plugins();
         let loaded_count = loaded_plugins.len();
         let active_pack = self.current_shader().unwrap_or_else(|| "None (Vanilla)".to_string());
+        let content = self.engine.content();
+        let custom_blocks = content.block_count();
+        let custom_items = content.item_count();
 
         // 1. Rurge Core Mod Loader entry
+        let core_desc = if custom_blocks > 0 || custom_items > 0 {
+            format!(
+                "High-performance native C-ABI mod loader. Loaded: {} .rmod mod(s), {} custom blocks/items.",
+                loaded_count,
+                custom_blocks + custom_items
+            )
+        } else {
+            format!(
+                "High-performance native C-ABI mod loader. Loaded: {} .rmod mod(s).",
+                loaded_count
+            )
+        };
+
         mods.push(NativeMod {
             id: "rurge_core".to_string(),
             title: "Rurge Mod Loader 0.1.0 [Rust]".to_string(),
-            description: format!(
-                "High-performance native C-ABI mod loader. Loaded: {} .rmod mod(s).",
-                loaded_count
-            ),
+            description: core_desc,
             keys: vec![],
         });
 
@@ -155,14 +168,52 @@ impl RurgeHorizonHooks {
             ]],
         });
 
-        // 3. Registered .rmod plugins
+        // 3. Registered .rmod plugins (native dynamic libraries)
+        let mut listed_mod_ids = std::collections::HashSet::new();
         for plugin in &loaded_plugins {
             let meta = &plugin.metadata;
+            let mod_id = meta.id.as_str();
+            listed_mod_ids.insert(mod_id.to_string());
             let authors: Vec<&str> = meta.authors.iter().map(|a| a.as_str()).collect();
+
+            let b_count = content.blocks_for_mod(mod_id).len();
+            let i_count = content.items_for_mod(mod_id).len();
+            let is_converted = b_count > 0 || i_count > 0;
+
+            let title = if is_converted {
+                format!("[Converted JAR] {} v{} [.rmod]", meta.name.as_str(), meta.version.as_str())
+            } else {
+                format!("{} v{} [.rmod]", meta.name.as_str(), meta.version.as_str())
+            };
+
+            let mut desc = format!("{} — By {}", meta.description.as_str(), authors.join(", "));
+            if is_converted {
+                desc = format!("{} (Blocks: {}, Items: {})", desc, b_count, i_count);
+            }
+
             mods.push(NativeMod {
-                id: format!("rurge_mod_{}", meta.id.as_str()),
-                title: format!("{} v{} [.rmod]", meta.name.as_str(), meta.version.as_str()),
-                description: format!("{} — By {}", meta.description.as_str(), authors.join(", ")),
+                id: format!("rurge_mod_{}", mod_id),
+                title,
+                description: desc,
+                keys: vec![],
+            });
+        }
+
+        // 4. Converted data-driven mods from ContentSchemaExecutor (if not already listed above)
+        for mod_id in content.loaded_mods() {
+            if listed_mod_ids.contains(&mod_id) {
+                continue;
+            }
+            let b_count = content.blocks_for_mod(&mod_id).len();
+            let i_count = content.items_for_mod(&mod_id).len();
+
+            mods.push(NativeMod {
+                id: format!("rurge_mod_{}", mod_id),
+                title: format!("[Converted JAR] {} [.rmod]", mod_id),
+                description: format!(
+                    "Data-driven converted mod (Blocks: {}, Items: {})",
+                    b_count, i_count
+                ),
                 keys: vec![],
             });
         }
@@ -194,10 +245,19 @@ impl RurgeHorizonHooks {
         if cmd == "rurge" || cmd == "rurge help" {
             let active = self.current_shader().unwrap_or_else(|| "None".to_string());
             let count = self.engine.mod_manager().loaded_plugins().len();
-            let msg = format!(
-                "§6[Rurge]§r v0.1.0 (Rust) | §eActive Shader:§r {} | §aLoaded Mods:§r {}",
-                active, count
-            );
+            let content_blocks = self.engine.content().block_count();
+            let content_items = self.engine.content().item_count();
+            let msg = if content_blocks > 0 || content_items > 0 {
+                format!(
+                    "§6[Rurge]§r v0.1.0 (Rust) | §eActive Shader:§r {} | §aLoaded Mods:§r {} (Custom Content: {} blocks/items)",
+                    active, count, content_blocks + content_items
+                )
+            } else {
+                format!(
+                    "§6[Rurge]§r v0.1.0 (Rust) | §eActive Shader:§r {} | §aLoaded Mods:§r {}",
+                    active, count
+                )
+            };
             return Some((msg, Flow::Cancel));
         }
         if cmd == "rurge shaders" || cmd == "rurge toggle" {

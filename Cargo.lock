@@ -3524,6 +3524,7 @@ dependencies = [
  "parking_lot",
  "rurge-api",
  "rurge-blamer",
+ "rurge-converter",
  "rurge-core",
  "rurge-loader",
  "rurge-runtime",
@@ -3550,9 +3551,11 @@ dependencies = [
 name = "rurge-runtime"
 version = "0.1.0"
 dependencies = [
+ "log",
  "parking_lot",
  "rurge-api",
  "rurge-blamer",
+ "rurge-converter",
  "rurge-core",
  "rurge-loader",
  "serde",

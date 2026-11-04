@@ -4,12 +4,14 @@
 //! dispatch, crash-resilient graphics pipeline pass injection, and NBT-isolated
 //! mod persistence.
 
+pub mod content_schema;
 pub mod engine;
 pub mod hooks;
 pub mod persistence;
 pub mod render;
 pub use render as render_hooks;
 
+pub use content_schema::ContentSchemaExecutor;
 pub use engine::{RurgeEngine, RuntimeError};
 pub use hooks::{ClientTickEvent, GameLoopHooks, ServerTickEvent, TickHooks};
 pub use persistence::{NbtCompound, PersistenceError, WorldDataAttachment};

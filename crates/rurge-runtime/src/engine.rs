@@ -9,6 +9,7 @@ use rurge_blamer::{safe_invoke, Blamer, PanicError};
 use rurge_core::EventBus;
 use rurge_loader::{LoaderError, ModManager};
 
+use crate::content_schema::ContentSchemaExecutor;
 use crate::hooks::{ClientTickEvent, ServerTickEvent, TickHooks};
 use crate::render::RenderPipelineHooks;
 
@@ -39,6 +40,7 @@ pub struct RurgeEngine {
     blamer: Arc<Blamer>,
     event_bus: Arc<EventBus>,
     mod_manager: RwLock<ModManager>,
+    content: Arc<ContentSchemaExecutor>,
     render_hooks: RenderPipelineHooks,
     tick_hooks: TickHooks,
     initialized: AtomicBool,
@@ -56,6 +58,7 @@ impl RurgeEngine {
         let blamer = Arc::new(Blamer::new());
         let event_bus = Arc::new(EventBus::new());
         let mod_manager = RwLock::new(ModManager::new(Arc::clone(&blamer)));
+        let content = Arc::new(ContentSchemaExecutor::new());
         let render_hooks = RenderPipelineHooks::new();
         let tick_hooks = TickHooks::new();
 
@@ -65,6 +68,7 @@ impl RurgeEngine {
             blamer,
             event_bus,
             mod_manager,
+            content,
             render_hooks,
             tick_hooks,
             initialized: AtomicBool::new(false),
@@ -97,6 +101,39 @@ impl RurgeEngine {
         }
 
         self.mod_manager.write().load_mods(&self.mods_dir, &self.cache_dir)?;
+
+        // Discover and register declarative content.json from all .rmod archives in mods_dir
+        if let Ok(archives) = self.mod_manager.read().discover_archives(&self.mods_dir) {
+            for archive in &archives {
+                if let Ok(Some(schema_str)) = archive.read_content_schema() {
+                    match rurge_converter::ContentSchema::from_json_str(&schema_str) {
+                        Ok(schema) => {
+                            if let Err(e) = self.content.register_schema(&schema.mod_id, &schema) {
+                                log::warn!(
+                                    "Failed to register content schema for mod '{}' in '{}': {e}",
+                                    schema.mod_id,
+                                    archive.path().display()
+                                );
+                            } else {
+                                log::info!(
+                                    "Registered content schema for mod '{}': {} blocks, {} items, {} recipes",
+                                    schema.mod_id,
+                                    schema.blocks.len(),
+                                    schema.items.len(),
+                                    schema.recipes.len()
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "Failed to parse content.json in '{}': {e}",
+                                archive.path().display()
+                            );
+                        }
+                    }
+                }
+            }
+        }
 
         // 2. Create RurgeContext.
         let ctx = RurgeContext::new(
@@ -181,6 +218,11 @@ impl RurgeEngine {
     /// Returns a reference to the crash diagnostics blamer.
     pub fn blamer(&self) -> &Arc<Blamer> {
         &self.blamer
+    }
+
+    /// Returns a shared reference to the declarative content schema executor.
+    pub fn content(&self) -> Arc<ContentSchemaExecutor> {
+        Arc::clone(&self.content)
     }
 
     /// Returns a reference to the render pipeline hooks.

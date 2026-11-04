@@ -153,11 +153,17 @@ impl ModManager {
                 .expect("Archive must exist for resolved manifest");
             let mod_cache_dir = cache_dir.join(&manifest.id);
 
-            // Extract binary
-            let binary_path = archive.extract_binary(target_triple, &mod_cache_dir)?;
-
             // Extract assets (if present)
             let _ = archive.extract_assets(&mod_cache_dir);
+
+            // Purely data-driven mods containing declarative content.json without a dynamic library
+            // do not require binary extraction or dylib loading.
+            if !archive.has_binary(target_triple) && archive.has_content_schema() {
+                continue;
+            }
+
+            // Extract binary
+            let binary_path = archive.extract_binary(target_triple, &mod_cache_dir)?;
 
             // Dynamically load library and instantiate plugin
             let (plugin_to, library) = unsafe { load_plugin_from_dylib(&binary_path)? };

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use horizon_client::mod_api::Mods;
 use rurge_horizon::hooks::RurgeHorizonHooks;
+use rurge_horizon::jar_scanner::convert_dropped_jars_in;
 use rurge_horizon::shaderpack_bundle::ensure_default_shaderpack_installed;
 use rurge_runtime::engine::RurgeEngine;
 
@@ -34,6 +35,12 @@ fn main() {
     // 4b. Ensure default shaderpack and compatible graphics API (Auto/Vulkan) are configured.
     ensure_compatible_graphics_config();
 
+    // 4c. Auto-convert any dropped Minecraft Java .jar files in "mods" to .rmod packages.
+    let converted_jars = convert_dropped_jars_in(mods_dir);
+    if !converted_jars.is_empty() {
+        log::info!("Auto-converted {} dropped JAR mod(s) to native .rmod", converted_jars.len());
+    }
+
     // 5. Initialize RurgeEngine.
     let mut engine = RurgeEngine::new();
 
@@ -42,7 +49,8 @@ fn main() {
         log::error!("Failed to initialize RurgeEngine: {e}");
     } else {
         let loaded_count = engine.mod_manager().loaded_plugins().len();
-        log::info!("Discovered and loaded {loaded_count} .rmod mod(s)");
+        let content_count = engine.content().block_count() + engine.content().item_count();
+        log::info!("Discovered and loaded {loaded_count} .rmod plugin(s), {content_count} custom content item(s)");
     }
 
     // 7. Construct RurgeHorizonHooks wrapping Arc<RurgeEngine>.

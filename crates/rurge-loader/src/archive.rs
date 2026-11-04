@@ -64,6 +64,66 @@ impl RmodArchive {
         }
     }
 
+    /// Checks whether the archive contains declarative `content.json`.
+    pub fn has_content_schema(&self) -> bool {
+        let Ok(file) = std::fs::File::open(&self.path) else {
+            return false;
+        };
+        let Ok(mut archive) = zip::ZipArchive::new(file) else {
+            return false;
+        };
+        archive.by_name("content.json").is_ok()
+    }
+
+    /// Reads `content.json` from the archive if present.
+    pub fn read_content_schema(&self) -> Result<Option<String>, ArchiveError> {
+        let file = std::fs::File::open(&self.path)?;
+        let mut archive = zip::ZipArchive::new(file)?;
+        match archive.by_name("content.json") {
+            Ok(mut entry) => {
+                let mut content = String::new();
+                entry.read_to_string(&mut content)?;
+                Ok(Some(content))
+            }
+            Err(zip::result::ZipError::FileNotFound) => Ok(None),
+            Err(err) => Err(ArchiveError::Zip(err)),
+        }
+    }
+
+    /// Checks whether the archive contains a dynamic library for `target_triple` (or fallback).
+    pub fn has_binary(&self, target_triple: &str) -> bool {
+        let Ok(file) = std::fs::File::open(&self.path) else {
+            return false;
+        };
+        let Ok(mut archive) = zip::ZipArchive::new(file) else {
+            return false;
+        };
+        let prefix_target = format!("binaries/{target_triple}/");
+        let is_dylib = |name: &str| {
+            let l = name.to_lowercase();
+            l.ends_with(".dll") || l.ends_with(".so") || l.ends_with(".dylib")
+        };
+        for i in 0..archive.len() {
+            if let Ok(entry) = archive.by_index(i) {
+                if entry.is_dir() {
+                    continue;
+                }
+                let name = entry.name().to_string();
+                if name.starts_with(&prefix_target) {
+                    return true;
+                }
+                if let Some(rest) = name.strip_prefix("binaries/")
+                    && !rest.is_empty()
+                    && !rest.contains('/')
+                    && is_dylib(&name)
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Extracts the host dynamic library matching `target_triple` to `out_dir`.
     ///
     /// Searches in order:

@@ -58,8 +58,10 @@ fn test_load_post_on_default_shaderpack() {
 
     let macros = horizon_shaders::Macros::standard();
     let properties = horizon_shaders::Properties::default();
-    let mut inputs = horizon_shaders::GameInputs::default();
-    inputs.terrain = Some(horizon_shaders::GbuffersInputs::default());
+    let inputs = horizon_shaders::GameInputs {
+        terrain: Some(horizon_shaders::GbuffersInputs::default()),
+        ..Default::default()
+    };
 
     let post = horizon_shaders::load_post(&pack, "", &properties, &macros, &inputs);
     println!("Post notes: {:?}", post.notes);

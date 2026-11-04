@@ -11,6 +11,7 @@ rurge-core = { path = "../rurge-core" }
 rurge-blamer = { path = "../rurge-blamer" }
 rurge-loader = { path = "../rurge-loader" }
 rurge-runtime = { path = "../rurge-runtime" }
+rurge-converter = { path = "../rurge-converter" }
 horizon-client = { path = "../../../horizon/crates/horizon-client" }
 horizon-client-render = { path = "../../../horizon/crates/horizon-client-render" }
 horizon-shaders = { path = "../../../horizon/crates/horizon-shaders" }

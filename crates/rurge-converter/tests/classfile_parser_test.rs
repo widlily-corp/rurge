@@ -339,9 +339,9 @@ fn test_constant_pool_numerics_and_field_ref_resolution() {
     builder.set_classes("com/example/Constants", "java/lang/Object");
 
     let int_idx = builder.add_integer(42);
-    let float_idx = builder.add_float(2.718);
+    let float_idx = builder.add_float(std::f32::consts::E);
     let long_idx = builder.add_long(1234567890123456789i64);
-    let double_idx = builder.add_double(3.141592653589793);
+    let double_idx = builder.add_double(std::f64::consts::PI);
     let string_idx = builder.add_string("after_numbers");
     let fieldref_idx = builder.add_field_ref(
         "net/minecraft/world/level/block/Blocks",
@@ -362,7 +362,7 @@ fn test_constant_pool_numerics_and_field_ref_resolution() {
     }
 
     match classfile.constant_pool.entry(float_idx) {
-        Some(ConstantPoolEntry::Float(val)) => assert!((*val - 2.718).abs() < 1e-5),
+        Some(ConstantPoolEntry::Float(val)) => assert!((*val - std::f32::consts::E).abs() < 1e-5),
         other => panic!("Expected Float at index {float_idx}, got: {other:?}"),
     }
 
@@ -373,7 +373,7 @@ fn test_constant_pool_numerics_and_field_ref_resolution() {
     }
 
     match classfile.constant_pool.entry(double_idx) {
-        Some(ConstantPoolEntry::Double(val)) => assert!((*val - 3.141592653589793).abs() < 1e-10),
+        Some(ConstantPoolEntry::Double(val)) => assert!((*val - std::f64::consts::PI).abs() < 1e-10),
         other => panic!("Expected Double at index {double_idx}, got: {other:?}"),
     }
 

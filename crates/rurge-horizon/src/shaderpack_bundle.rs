@@ -8,6 +8,8 @@ pub const SHADERPACK_NAME: &str = "test-classic-shader.zip";
 
 const SHADERS_PROPERTIES: &str =
     include_str!("../../../assets/shaderpacks/test-classic-shader/shaders/shaders.properties");
+const LANG_EN_US: &str =
+    include_str!("../../../assets/shaderpacks/test-classic-shader/shaders/lang/en_US.lang");
 const GBUFFERS_TERRAIN_VSH: &str =
     include_str!("../../../assets/shaderpacks/test-classic-shader/shaders/gbuffers_terrain.vsh");
 const GBUFFERS_TERRAIN_FSH: &str =
@@ -27,8 +29,9 @@ pub fn build_shaderpack_zip_bytes() -> Result<Vec<u8>, String> {
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
 
-    let entries: [(&str, &str); 7] = [
+    let entries: [(&str, &str); 8] = [
         ("shaders/shaders.properties", SHADERS_PROPERTIES),
+        ("shaders/lang/en_US.lang", LANG_EN_US),
         ("shaders/gbuffers_terrain.vsh", GBUFFERS_TERRAIN_VSH),
         ("shaders/gbuffers_terrain.fsh", GBUFFERS_TERRAIN_FSH),
         ("shaders/composite.vsh", COMPOSITE_VSH),
@@ -52,10 +55,23 @@ pub fn build_shaderpack_zip_bytes() -> Result<Vec<u8>, String> {
     Ok(cursor.into_inner())
 }
 
+/// Checks whether an existing ZIP file at `path` contains the required options/language file.
+fn is_shaderpack_up_to_date(path: &Path) -> bool {
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+    let mut archive = match zip::ZipArchive::new(file) {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    archive.by_name("shaders/lang/en_US.lang").is_ok()
+}
+
 /// Ensures the default test shaderpack is installed in `target_dir` (e.g. `shaderpacks/`).
 ///
-/// If `target_dir/test-classic-shader.zip` already exists, returns immediately with its path.
-/// Otherwise, builds the ZIP in memory and writes it to disk.
+/// If `target_dir/test-classic-shader.zip` already exists and is up to date, returns its path.
+/// Otherwise, builds the updated ZIP and writes it to disk.
 pub fn ensure_default_shaderpack_installed(target_dir: &Path) -> Result<PathBuf, String> {
     if !target_dir.exists() {
         std::fs::create_dir_all(target_dir)
@@ -63,7 +79,9 @@ pub fn ensure_default_shaderpack_installed(target_dir: &Path) -> Result<PathBuf,
     }
 
     let pack_path = target_dir.join(SHADERPACK_NAME);
-    if !pack_path.exists() {
+    let needs_install = !pack_path.exists() || !is_shaderpack_up_to_date(&pack_path);
+
+    if needs_install {
         let zip_bytes = build_shaderpack_zip_bytes()?;
         std::fs::write(&pack_path, zip_bytes)
             .map_err(|e| format!("failed to write shaderpack to '{}': {e}", pack_path.display()))?;

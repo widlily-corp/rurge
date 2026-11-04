@@ -1,0 +1,7 @@
+# Rurge Classic Shaderpack Translations
+option.VIGNETTE = Vignette
+option.VIGNETTE.comment = Toggle subtle vignette darkening at screen edges
+option.VignetteStrength = Vignette Strength
+option.VignetteStrength.comment = Adjust intensity of the vignette darkening effect
+option.COLOR_BOOST = Color Warmth Boost
+option.COLOR_BOOST.comment = Adjust warm tone color saturation multiplier

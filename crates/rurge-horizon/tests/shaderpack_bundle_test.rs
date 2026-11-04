@@ -27,6 +27,13 @@ fn test_shaderpack_bundle_installation_and_validation() {
     assert!(pack.exists("gbuffers_terrain.fsh"));
     assert!(pack.exists("gbuffers_terrain.vsh"));
     assert!(pack.exists("shaders.properties"));
+    assert!(pack.exists("lang/en_US.lang"));
+
+    // Verify shader options are recognized
+    let options = horizon_shaders::options(&pack);
+    assert!(options.contains_key("VignetteStrength"));
+    assert!(options.contains_key("VIGNETTE"));
+    assert!(options.contains_key("COLOR_BOOST"));
 
     assert!(pack_has_stage(&pack, "final"));
     assert!(pack_has_stage(&pack, "composite"));

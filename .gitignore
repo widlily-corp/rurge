@@ -10,9 +10,12 @@ horizon-player.txt
 horizon_official_server.txt
 servers.dat
 options.txt
-saves/
-shaderpacks/
-mods/
-run.log
+/saves/
+/shaderpacks/
+/mods/
+/horizon-mods/
+/run.log
+
+
 
 

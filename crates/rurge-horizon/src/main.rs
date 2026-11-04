@@ -10,15 +10,12 @@ use rurge_horizon::shaderpack_bundle::ensure_default_shaderpack_installed;
 use rurge_runtime::engine::RurgeEngine;
 
 fn main() {
-    // 1. Ensure "mods" and "shaderpacks" folders exist.
+    // 1. Ensure "mods", "horizon-mods", and "shaderpacks" folders exist and are unified.
     let mods_dir = Path::new("mods");
+    let horizon_mods_dir = Path::new("horizon-mods");
     let shaderpacks_dir = Path::new("shaderpacks");
 
-    if !mods_dir.exists()
-        && let Err(e) = std::fs::create_dir_all(mods_dir)
-    {
-        log::warn!("Failed to create mods directory: {e}");
-    }
+    ensure_mod_directories_linked(mods_dir, horizon_mods_dir);
 
     if !shaderpacks_dir.exists()
         && let Err(e) = std::fs::create_dir_all(shaderpacks_dir)
@@ -26,17 +23,21 @@ fn main() {
         log::warn!("Failed to create shaderpacks directory: {e}");
     }
 
-    // 4. Install bundled shaderpack using ensure_default_shaderpack_installed.
+    // 2. Install bundled shaderpack with options and translations.
     match ensure_default_shaderpack_installed(shaderpacks_dir) {
         Ok(path) => log::info!("Ensured default shaderpack at '{}'", path.display()),
         Err(e) => log::warn!("Failed to install default shaderpack: {e}"),
     }
 
-    // 4b. Ensure default shaderpack and compatible graphics API (Auto/Vulkan) are configured.
+    // 3. Ensure default shaderpack and compatible graphics API (Auto/Vulkan) are configured
+    // across both horizon-graphics.txt and options.txt (preventing OpenGL Naga depth blit crashes).
     ensure_compatible_graphics_config();
 
-    // 4c. Auto-convert any dropped Minecraft Java .jar files in "mods" to .rmod packages.
-    let converted_jars = convert_dropped_jars_in(mods_dir);
+    // 4. Auto-convert any dropped Minecraft Java .jar files in "mods" and "horizon-mods" to .rmod packages.
+    let mut converted_jars = convert_dropped_jars_in(mods_dir);
+    if horizon_mods_dir.exists() && horizon_mods_dir != mods_dir {
+        converted_jars.extend(convert_dropped_jars_in(horizon_mods_dir));
+    }
     if !converted_jars.is_empty() {
         log::info!("Auto-converted {} dropped JAR mod(s) to native .rmod", converted_jars.len());
     }
@@ -48,6 +49,19 @@ fn main() {
     if let Err(e) = engine.initialize() {
         log::error!("Failed to initialize RurgeEngine: {e}");
     } else {
+        // Also register any declarative content from horizon-mods if it is a separate directory
+        if horizon_mods_dir.exists()
+            && let Ok(archives) = engine.mod_manager().discover_archives(horizon_mods_dir)
+        {
+            for archive in &archives {
+                if let Ok(Some(schema_str)) = archive.read_content_schema()
+                    && let Ok(schema) = rurge_converter::ContentSchema::from_json_str(&schema_str)
+                {
+                    let _ = engine.content().register_schema(&schema.mod_id, &schema);
+                }
+            }
+        }
+
         let loaded_count = engine.mod_manager().loaded_plugins().len();
         let content_count = engine.content().block_count() + engine.content().item_count();
         log::info!("Discovered and loaded {loaded_count} .rmod plugin(s), {content_count} custom content item(s)");
@@ -67,12 +81,46 @@ fn main() {
     engine.shutdown();
 }
 
+/// Unifies the `mods/` and `horizon-mods/` directories so clicking "Open Mods Folder"
+/// in Horizon's UI opens the Rurge mods directory where `.rmod` and `.jar` mods reside.
+fn ensure_mod_directories_linked(mods_dir: &Path, horizon_mods_dir: &Path) {
+    let _ = std::fs::create_dir_all(mods_dir);
+
+    // On Windows, if horizon-mods does not exist, create an NTFS directory junction to mods/
+    if !horizon_mods_dir.exists() {
+        #[cfg(windows)]
+        {
+            let _ = std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J", "horizon-mods", "mods"])
+                .output();
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = std::os::unix::fs::symlink("mods", "horizon-mods");
+        }
+    }
+
+    if !horizon_mods_dir.exists() {
+        let _ = std::fs::create_dir_all(horizon_mods_dir);
+    }
+
+    let readme = "=== Rurge Mod Loader ===\n\n\
+Drop your native Rurge (.rmod) mod packages or legacy Minecraft Java (.jar) mods in this folder.\n\
+Dropped .jar mods are automatically detected, converted to .rmod, and loaded on game startup.\n\
+In-game Options > Mods lists all active native and converted mods with block/item counts.\n";
+
+    let readme_path = mods_dir.join("README.txt");
+    if !readme_path.exists() {
+        let _ = std::fs::write(readme_path, readme);
+    }
+}
+
 /// Activates `test-classic-shader.zip` by default in `horizon-graphics.txt` if none is configured,
 /// and ensures a compatible modern backend (Auto/Vulkan/Dx12) is selected instead of legacy OpenGL
 /// where Naga's GLSL backend fails on depth texture loads (`textureLoad` in `fs_blit`).
 fn ensure_compatible_graphics_config() {
-    let path = Path::new("horizon-graphics.txt");
-    let content = std::fs::read_to_string(path).unwrap_or_default();
+    let graphics_path = Path::new("horizon-graphics.txt");
+    let content = std::fs::read_to_string(graphics_path).unwrap_or_default();
     let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
     let mut modified = false;
 
@@ -96,7 +144,7 @@ fn ensure_compatible_graphics_config() {
         modified = true;
     }
 
-    // 2. Ensure graphicsApi is auto/vulkan rather than opengl (which breaks shader blit in wgpu)
+    // 2. Ensure graphicsApi in horizon-graphics.txt is auto/vulkan rather than opengl
     let mut api_found = false;
     for line in &mut lines {
         if line.starts_with("graphicsApi:") {
@@ -114,6 +162,22 @@ fn ensure_compatible_graphics_config() {
     }
 
     if modified {
-        let _ = std::fs::write(path, lines.join("\n") + "\n");
+        let _ = std::fs::write(graphics_path, lines.join("\n") + "\n");
+    }
+
+    // 3. Ensure options.txt does not force legacy OpenGL (which crashes wgpu on depth textureLoad)
+    let options_path = Path::new("options.txt");
+    if let Ok(opt_content) = std::fs::read_to_string(options_path) {
+        let mut opt_lines: Vec<String> = opt_content.lines().map(|s| s.to_string()).collect();
+        let mut opt_modified = false;
+        for line in &mut opt_lines {
+            if line.starts_with("preferredGraphicsBackend:") && line.contains("opengl") {
+                *line = "preferredGraphicsBackend:\"default\"".to_string();
+                opt_modified = true;
+            }
+        }
+        if opt_modified {
+            let _ = std::fs::write(options_path, opt_lines.join("\n") + "\n");
+        }
     }
 }

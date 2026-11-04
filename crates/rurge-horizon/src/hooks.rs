@@ -150,7 +150,7 @@ impl RurgeHorizonHooks {
 
         mods.push(NativeMod {
             id: "rurge_core".to_string(),
-            title: "Rurge Mod Loader 0.1.0 [Rust]".to_string(),
+            title: "Rurge Mod Loader 0.2.0 [Rust]".to_string(),
             description: core_desc,
             keys: vec![],
         });
@@ -223,8 +223,9 @@ impl RurgeHorizonHooks {
     pub fn populate_settings(&self, mod_id: &str, buttons: &mut Vec<String>) {
         match mod_id {
             "rurge_core" => {
-                buttons.push("Open Mods Folder (.rmod)".to_string());
+                buttons.push("Open Mods Folder (.rmod / .jar)".to_string());
                 buttons.push("Open Shaderpacks Folder (.zip)".to_string());
+                buttons.push("Re-scan & Convert Dropped JARs".to_string());
             }
             "rurge_shaders" => {
                 let active = self.current_shader().unwrap_or_else(|| "None".to_string());
@@ -249,12 +250,12 @@ impl RurgeHorizonHooks {
             let content_items = self.engine.content().item_count();
             let msg = if content_blocks > 0 || content_items > 0 {
                 format!(
-                    "§6[Rurge]§r v0.1.0 (Rust) | §eActive Shader:§r {} | §aLoaded Mods:§r {} (Custom Content: {} blocks/items)",
+                    "§6[Rurge]§r v0.2.0 (Rust) | §eActive Shader:§r {} | §aLoaded Mods:§r {} (Custom Content: {} blocks/items)",
                     active, count, content_blocks + content_items
                 )
             } else {
                 format!(
-                    "§6[Rurge]§r v0.1.0 (Rust) | §eActive Shader:§r {} | §aLoaded Mods:§r {}",
+                    "§6[Rurge]§r v0.2.0 (Rust) | §eActive Shader:§r {} | §aLoaded Mods:§r {}",
                     active, count
                 )
             };
@@ -264,6 +265,15 @@ impl RurgeHorizonHooks {
             self.toggle_default_shaderpack();
             let active = self.current_shader().unwrap_or_else(|| "None".to_string());
             let msg = format!("§6[Rurge]§r Shaderpack set to: §e{}§r", active);
+            return Some((msg, Flow::Cancel));
+        }
+        if cmd == "rurge convert" {
+            let converted = crate::jar_scanner::convert_dropped_jars_in(Path::new("mods"));
+            let msg = if converted.is_empty() {
+                "§6[Rurge]§r No new or modified .jar mods found to convert in mods/".to_string()
+            } else {
+                format!("§6[Rurge]§r Converted {} JAR mod(s) to native .rmod!", converted.len())
+            };
             return Some((msg, Flow::Cancel));
         }
         None
@@ -294,6 +304,10 @@ impl Hooks for RurgeHorizonHooks {
             }
             ("rurge_core", 1) => {
                 let _ = Command::new("explorer").arg("shaderpacks").spawn();
+            }
+            ("rurge_core", 2) => {
+                let converted = crate::jar_scanner::convert_dropped_jars_in(Path::new("mods"));
+                log::info!("Manual re-scan converted {} JAR mod(s)", converted.len());
             }
             ("rurge_shaders", 0) => {
                 self.toggle_default_shaderpack();
@@ -336,7 +350,7 @@ impl Hooks for RurgeHorizonHooks {
         let loaded_count = self.engine.mod_manager().loaded_plugins().len();
         let active = self.current_shader().unwrap_or_else(|| "Vanilla (Off)".to_string());
 
-        host.text(event.batch, "RURGE NATIVE 0.1.0", [x + 8.0, y + 4.0], 0x00D1FF, true);
+        host.text(event.batch, "RURGE NATIVE 0.2.0", [x + 8.0, y + 4.0], 0x00D1FF, true);
         host.text(
             event.batch,
             &format!("Shaders: {}", active),

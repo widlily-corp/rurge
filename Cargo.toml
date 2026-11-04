@@ -15,6 +15,7 @@ members = [
     "crates/rurge-blamer",
     "crates/rurge-loader",
     "crates/rurge-runtime",
+    "crates/rurge-converter",
     "crates/cargo-rurge",
     "crates/rurge-horizon",
     "examples/simple-hud-mod",

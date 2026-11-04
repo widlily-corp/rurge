@@ -3483,6 +3483,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rurge-converter"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "rurge-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "toml 0.8.23",
+ "zip 9.3.0",
+]
+
+[[package]]
 name = "rurge-core"
 version = "0.1.0"
 dependencies = [

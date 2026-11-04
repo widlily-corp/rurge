@@ -66,12 +66,12 @@
 - `patterns/fabric.rs`: Match `net/minecraft/util/registry/Registry.register` and `Registries.BLOCK` / `Registries.ITEM`.
 - `patterns/forge.rs`: Match `DeferredRegister.create` and `RegistryObject` registration calls.
 
-- [ ] **Step 2.1: Write failing test for Fabric and Forge manifest parsing**
-- [ ] **Step 2.2: Implement `manifest.rs` and `ir.rs`**
-- [ ] **Step 2.3: Write failing test for opcode pattern matching against synthetic class bytes**
-- [ ] **Step 2.4: Implement `patterns/fabric.rs` and `patterns/forge.rs`**
-- [ ] **Step 2.5: Verify tests pass with `cargo test -p rurge-converter`**
-- [ ] **Step 2.6: Commit Task 2**
+- [x] **Step 2.1: Write failing test for Fabric and Forge manifest parsing**
+- [x] **Step 2.2: Implement `manifest.rs` and `ir.rs`**
+- [x] **Step 2.3: Write failing test for opcode pattern matching against synthetic class bytes**
+- [x] **Step 2.4: Implement `patterns/fabric.rs` and `patterns/forge.rs`**
+- [x] **Step 2.5: Verify tests pass with `cargo test -p rurge-converter`**
+- [x] **Step 2.6: Commit Task 2**
 
 ---
 
@@ -88,12 +88,12 @@
 - `schema.rs`: Serialize the IR into versioned `content.json` matching spec section 4.2.
 - `compatibility.rs`: Inspect class list and bytecode for `org/spongepowered/asm/mixin` (Mixins), `net/minecraft/world/level/block/entity/BlockEntity` ticking, and custom packets. Compute `CompatibilityStatus::Full`, `Partial`, or `Skipped`.
 
-- [ ] **Step 3.1: Write failing tests for asset normalization, model traversal, and schema generation**
-- [ ] **Step 3.2: Implement `assets.rs` and `schema.rs`**
-- [ ] **Step 3.3: Write failing test for compatibility auditor detecting Mixins vs pure content**
-- [ ] **Step 3.4: Implement `compatibility.rs`**
-- [ ] **Step 3.5: Verify tests pass with `cargo test -p rurge-converter`**
-- [ ] **Step 3.6: Commit Task 3**
+- [x] **Step 3.1: Write failing tests for asset normalization, model traversal, and schema generation**
+- [x] **Step 3.2: Implement `assets.rs` and `schema.rs`**
+- [x] **Step 3.3: Write failing test for compatibility auditor detecting Mixins vs pure content**
+- [x] **Step 3.4: Implement `compatibility.rs`**
+- [x] **Step 3.5: Verify tests pass with `cargo test -p rurge-converter`**
+- [x] **Step 3.6: Commit Task 3**
 
 ---
 
@@ -111,11 +111,11 @@
 - `packager.rs`: Assemble `manifest.toml`, `content.json`, `compatibility-report.json`, and normalized `assets/` into a compressed `.rmod` zip archive.
 - `cargo rurge convert <file.jar> [-o <output.rmod>]`: Command-line interface with informative console output, displaying extracted items/blocks count and compatibility grade.
 
-- [ ] **Step 4.1: Write failing end-to-end conversion test on sample test JAR**
-- [ ] **Step 4.2: Implement `packager.rs` and public API in `lib.rs`**
-- [ ] **Step 4.3: Integrate `convert` subcommand into `cargo-rurge` CLI**
-- [ ] **Step 4.4: Verify tests pass with `cargo test -p rurge-converter -p cargo-rurge`**
-- [ ] **Step 4.5: Commit Task 4**
+- [x] **Step 4.1: Write failing end-to-end conversion test on sample test JAR**
+- [x] **Step 4.2: Implement `packager.rs` and public API in `lib.rs`**
+- [x] **Step 4.3: Integrate `convert` subcommand into `cargo-rurge` CLI**
+- [x] **Step 4.4: Verify tests pass with `cargo test -p rurge-converter -p cargo-rurge`**
+- [x] **Step 4.5: Commit Task 4**
 
 ---
 
@@ -136,12 +136,12 @@
 - `jar_scanner.rs`: On client startup, inspect `mods/`. For any `<name>.jar`, if `<name>.rmod` does not exist or is older than the `.jar`, run `convert_jar_to_rmod`.
 - In-game Options > Mods displays converted mods with label `[Converted from JAR]`.
 
-- [ ] **Step 5.1: Write failing test for `ContentSchemaExecutor` loading `content.json`**
-- [ ] **Step 5.2: Implement `content_schema.rs` in `rurge-runtime`**
-- [ ] **Step 5.3: Write failing test for `jar_scanner` drop-in converter**
-- [ ] **Step 5.4: Implement `jar_scanner.rs` and integrate into `rurge-horizon` boot pipeline**
-- [ ] **Step 5.5: Verify tests pass with `cargo test -p rurge-runtime -p rurge-horizon`**
-- [ ] **Step 5.6: Commit Task 5**
+- [x] **Step 5.1: Write failing test for `ContentSchemaExecutor` loading `content.json`**
+- [x] **Step 5.2: Implement `content_schema.rs` in `rurge-runtime`**
+- [x] **Step 5.3: Write failing test for `jar_scanner` drop-in converter**
+- [x] **Step 5.4: Implement `jar_scanner.rs` and integrate into `rurge-horizon` boot pipeline**
+- [x] **Step 5.5: Verify tests pass with `cargo test -p rurge-runtime -p rurge-horizon`**
+- [x] **Step 5.6: Commit Task 5**
 
 ---
 
@@ -158,7 +158,7 @@
 - Run Clippy with 0 warnings, 0 errors.
 - Document the conversion pipeline, supported features, and CLI usage in `README.md`.
 
-- [ ] **Step 6.1: Run full workspace test suite `cargo test --workspace`**
-- [ ] **Step 6.2: Run workspace clippy `cargo clippy --workspace --all-targets -- -D warnings`**
-- [ ] **Step 6.3: Update README.md with comprehensive documentation and examples**
-- [ ] **Step 6.4: Final commit and git push to `origin/main`**
+- [x] **Step 6.1: Run full workspace test suite `cargo test --workspace`**
+- [x] **Step 6.2: Run workspace clippy `cargo clippy --workspace --all-targets -- -D warnings`**
+- [x] **Step 6.3: Update README.md with comprehensive documentation and examples**
+- [x] **Step 6.4: Final commit and git push to `origin/main`**

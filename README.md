@@ -28,10 +28,11 @@ rurge/
 │   ├── rurge-api/       # Stable C-ABI plugin contract (abi_stable traits, events, metadata)
 │   ├── rurge-core/      # Prioritized EventBus, Registries, rurge.toml manifest, SemVer DAG
 │   ├── rurge-blamer/    # Panic boundary isolation, stack tracing, and crash report generator
-│   ├── rurge-loader/    # .rmod ZIP extraction, multi-arch dylib loading, lifecycle manager
-│   ├── rurge-runtime/   # Horizon game loop integration, WGPU render hooks, NBT persistence
-│   ├── rurge-horizon/   # Native client launcher with WGPU shader pipeline & embedded shaders
-│   └── cargo-rurge/     # Developer CLI tool (new, build, pack, run)
+│   ├── rurge-converter/ # Zero-JVM static bytecode analyzer & smart JAR-to-RMOD converter
+│   ├── rurge-loader/    # .rmod ZIP extraction, multi-arch dylib loading, declarative mod loader
+│   ├── rurge-runtime/   # Horizon game loop integration, WGPU render hooks, ContentSchemaExecutor
+│   ├── rurge-horizon/   # Native client launcher with drop-in JAR scanner & embedded shaders
+│   └── cargo-rurge/     # Developer CLI tool (new, build, pack, convert, run)
 ├── examples/
 │   ├── simple-hud-mod/  # Real example native mod demonstrating coordinates HUD & panic recovery
 │   └── shader-hud-mod/  # Real example native mod responding to shaderpack events & render hooks
@@ -192,6 +193,70 @@ All hook executions are isolated inside secondary command encoders and panic bou
 ### Reference Example Mod
 For a full working demonstration of listening to shader lifecycle events and querying `RenderPassContext`, see:
 - [`examples/shader-hud-mod`](examples/shader-hud-mod): An example HUD mod that displays active shaderpack status, camera coordinates, and viewport dimensions.
+
+---
+
+## 🔄 Smart JAR-to-RMOD Converter (Zero-JVM Mod Porting)
+
+Rurge includes an intelligent, zero-JVM static analyzer and converter (`rurge-converter`) that transforms legacy Minecraft Java `.jar` mods into native declarative `.rmod` packages.
+
+### Why Zero-JVM?
+Running an embedded JVM inside a Rust engine would add 250+ MB of RAM overhead and introduce unpredictable garbage collection pauses. Instead, `rurge-converter`:
+1. Reads compiled `.class` files statically, parsing the constant pool and opcode streams without running Java.
+2. Identifies mod loader registrations:
+   - **Fabric & Quilt**: `Registry.register(...)` and `Registries.register(...)`
+   - **Modern Forge & NeoForge**: `DeferredRegister.create(...)` and `RegistryObject`
+   - **Legacy Forge**: `@GameRegistry` and `mcmod.info`
+3. Extracts blocks, items, recipes, tool properties, food stats, and sound groups into a unified Intermediate Representation (IR).
+4. Normalizes JSON models, blockstates, textures, and language keys.
+5. Emits a pure data-driven `.rmod` archive with `content.json` that runs natively in Rurge with **zero C/Rust compiler installation required on the player's machine**.
+
+### How to Use
+
+#### Method 1: Automatic Drop-In (Recommended)
+Simply place any Fabric, Quilt, or Forge `.jar` file directly into your `mods/` directory:
+```text
+mods/
+├── copper_plus-1.2.0.jar
+└── simple_hud-0.1.0.rmod
+```
+When `rurge-horizon` launches, it automatically:
+- Scans `mods/` for new or updated `.jar` archives.
+- Converts `copper_plus-1.2.0.jar` into `copper_plus-1.2.0.rmod` in milliseconds.
+- Caches the converted package so future game starts are instantaneous.
+- Displays the mod in **Options > Mods** with the `[Converted JAR]` tag.
+
+#### Method 2: Command-Line Interface (`cargo rurge convert`)
+Convert any mod from the command line:
+
+```bash
+# Convert a mod in place (outputs <modid>-<version>.rmod)
+cargo rurge convert path/to/mod.jar
+
+# Specify custom output path
+cargo rurge convert path/to/mod.jar -o mods/custom_mod.rmod
+
+# Inspect mod metadata and compatibility without writing a file
+cargo rurge convert path/to/mod.jar --inspect
+```
+
+Example CLI Output:
+```text
+[Rurge Converter] Analyzing legacy JAR: CopperPlus-1.20.1.jar
+[✓] Detected: Fabric / Quilt: "Copper Plus" v1.2.0 (id: copper_plus)
+[✓] Bytecode scan: 14 blocks, 9 items, 24 recipes extracted
+[✓] Assets: 48 textures, 23 models, 1 lang file normalized
+[✓] Compatibility: FULL (No mixins or ASM detected)
+[✓] Generated native RMOD package: CopperPlus-1.2.0.rmod
+```
+
+### Compatibility Tiers
+
+| Tier | Mod Examples | Behavior |
+| :--- | :--- | :--- |
+| **`FULL`** | *Furniture, Ores, Building Blocks, Tool & Armor sets, Decorative items, Biome blocks* | 100% conversion: blocks, items, crafting recipes, textures, models, and sound cues. |
+| **`PARTIAL`** | *Storage Drawers, Iron Chests, Simple Machines* | Content (blocks, items, models) converted; custom Java tick logic degrades gracefully with an audit warning in `compatibility-report.json`. |
+| **`SKIPPED`** | *Sodium, Lithium, Iris, FerriteCore* | Skipped with explanation: Rurge already provides a native Rust WGPU render engine with native shaderpack support. |
 
 ---
 

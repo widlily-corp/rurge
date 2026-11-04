@@ -341,7 +341,7 @@ impl ClassFile {
         let max_stack = u16::from_be_bytes([data[0], data[1]]);
         let max_locals = u16::from_be_bytes([data[2], data[3]]);
         let code_len = u32::from_be_bytes([data[4], data[5], data[6], data[7]]) as usize;
-        if 8 + code_len > data.len() {
+        if code_len > data.len() - 8 {
             return None;
         }
         let bytecode = data[8..8 + code_len].to_vec();
@@ -380,13 +380,10 @@ impl ClassFile {
     pub fn contains_string_constant(&self, s: &str) -> bool {
         for (_, entry) in self.constant_pool.iter() {
             match entry {
-                ConstantPoolEntry::Utf8(val) if val == s => return true,
-                ConstantPoolEntry::StringRef { string_index } => {
-                    if let Some(val) = self.constant_pool.get_utf8(*string_index) {
-                        if val == s {
-                            return true;
-                        }
-                    }
+                ConstantPoolEntry::StringRef { string_index }
+                    if self.constant_pool.get_utf8(*string_index) == Some(s) =>
+                {
+                    return true;
                 }
                 _ => {}
             }
@@ -399,12 +396,13 @@ impl ClassFile {
     pub fn references_class(&self, class_name: &str) -> bool {
         let norm = class_name.replace('.', "/");
         for (_, entry) in self.constant_pool.iter() {
-            if let ConstantPoolEntry::Class { name_index } = entry {
-                if let Some(cls) = self.constant_pool.get_utf8(*name_index) {
-                    if cls == norm {
-                        return true;
-                    }
+            match entry {
+                ConstantPoolEntry::Class { name_index }
+                    if self.constant_pool.get_utf8(*name_index) == Some(norm.as_str()) =>
+                {
+                    return true;
                 }
+                _ => {}
             }
         }
         false
@@ -429,7 +427,7 @@ impl ClassFile {
                     let len = instruction_length(code, offset);
 
                     let cp_index = match opcode {
-                        0xB6 | 0xB7 | 0xB8 | 0xB9 => {
+                        0xB6..=0xB9 => {
                             // invokevirtual, invokespecial, invokestatic, invokeinterface
                             if offset + 2 < code.len() {
                                 Some(u16::from_be_bytes([code[offset + 1], code[offset + 2]]))
@@ -440,22 +438,22 @@ impl ClassFile {
                         _ => None,
                     };
 
-                    if let Some(idx) = cp_index {
-                        if let Some((cls, mth, desc)) = self.constant_pool.resolve_method_ref(idx) {
-                            let class_matches =
-                                norm_target_class.is_empty() || cls == norm_target_class;
-                            let method_matches =
-                                target_method.is_empty() || mth == target_method;
-                            if class_matches && method_matches {
-                                invocations.push(MethodInvocation {
-                                    opcode,
-                                    class_name: cls.to_string(),
-                                    method_name: mth.to_string(),
-                                    descriptor: desc.to_string(),
-                                    offset,
-                                    caller_method_name: method.name.clone(),
-                                });
-                            }
+                    if let Some((cls, mth, desc)) =
+                        cp_index.and_then(|idx| self.constant_pool.resolve_method_ref(idx))
+                    {
+                        let class_matches =
+                            norm_target_class.is_empty() || cls == norm_target_class;
+                        let method_matches =
+                            target_method.is_empty() || mth == target_method;
+                        if class_matches && method_matches {
+                            invocations.push(MethodInvocation {
+                                opcode,
+                                class_name: cls.to_string(),
+                                method_name: mth.to_string(),
+                                descriptor: desc.to_string(),
+                                offset,
+                                caller_method_name: method.name.clone(),
+                            });
                         }
                     }
 
@@ -541,8 +539,13 @@ pub fn instruction_length(code: &[u8], offset: usize) -> usize {
             if base + 12 <= code.len() {
                 let low = i32::from_be_bytes([code[base + 4], code[base + 5], code[base + 6], code[base + 7]]);
                 let high = i32::from_be_bytes([code[base + 8], code[base + 9], code[base + 10], code[base + 11]]);
-                let count = if high >= low { (high - low + 1) as usize } else { 0 };
-                1 + pad + 12 + count * 4
+                let count = if high >= low {
+                    let diff = (high as i64) - (low as i64) + 1;
+                    diff.max(0) as usize
+                } else {
+                    0
+                };
+                1 + pad + 12 + count.saturating_mul(4)
             } else {
                 1
             }
@@ -555,7 +558,7 @@ pub fn instruction_length(code: &[u8], offset: usize) -> usize {
             if base + 8 <= code.len() {
                 let npairs = i32::from_be_bytes([code[base + 4], code[base + 5], code[base + 6], code[base + 7]]);
                 let count = if npairs > 0 { npairs as usize } else { 0 };
-                1 + pad + 8 + count * 8
+                1 + pad + 8 + count.saturating_mul(8)
             } else {
                 1
             }

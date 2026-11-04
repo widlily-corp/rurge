@@ -386,3 +386,32 @@ fn test_constant_pool_numerics_and_field_ref_resolution() {
     assert_eq!(field_name, "STONE");
     assert_eq!(desc, "Lnet/minecraft/world/level/block/Block;");
 }
+
+#[test]
+fn test_string_constant_does_not_match_method_or_descriptor_utf8() {
+    let mut builder = SyntheticClassBuilder::new(0, 61);
+    builder.set_classes("com/example/Test", "java/lang/Object");
+    builder.add_method("onlyMethodName", "()V", &[0xB1]);
+
+    let bytes = builder.build();
+    let classfile = ClassFile::parse(&bytes).expect("parse classfile");
+
+    // "onlyMethodName" is a method name Utf8, but NOT a string constant (CONSTANT_String)
+    assert!(!classfile.contains_string_constant("onlyMethodName"));
+    assert!(!classfile.contains_string_constant("()V"));
+}
+
+#[test]
+fn test_instruction_length_extreme_tableswitch_does_not_panic() {
+    use rurge_converter::bytecode::instruction_length;
+
+    // Construct a tableswitch with low = i32::MIN, high = i32::MAX
+    let mut code = vec![0xAA, 0x00, 0x00, 0x00]; // opcode + 3 pad
+    code.extend_from_slice(&0i32.to_be_bytes()); // default
+    code.extend_from_slice(&i32::MIN.to_be_bytes()); // low
+    code.extend_from_slice(&i32::MAX.to_be_bytes()); // high
+    
+    // instruction_length must not panic on subtraction overflow
+    let len = instruction_length(&code, 0);
+    assert!(len > 0);
+}

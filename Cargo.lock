@@ -483,6 +483,7 @@ name = "cargo-rurge"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "rurge-converter",
  "rurge-core",
  "rurge-loader",
  "semver",
@@ -3488,6 +3489,7 @@ version = "0.1.0"
 dependencies = [
  "log",
  "rurge-core",
+ "semver",
  "serde",
  "serde_json",
  "tempfile",

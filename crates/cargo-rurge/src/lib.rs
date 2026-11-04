@@ -24,6 +24,10 @@ pub enum CargoRurgeError {
     #[error("Manifest error: {0}")]
     Manifest(#[from] rurge_core::ManifestError),
 
+    /// JAR to RMOD converter errors.
+    #[error("Converter error: {0}")]
+    Converter(#[from] rurge_converter::ConverterError),
+
     /// Invalid mod identifier format.
     #[error("Invalid mod ID '{0}': ID must be non-empty and contain only alphanumeric, underscores, or hyphens")]
     InvalidModId(String),
@@ -56,7 +60,7 @@ pub enum CargoRurgeError {
     Custom(String),
 }
 
-/// Developer CLI tool for Rurge native mods (scaffolding, building, packaging).
+/// Developer CLI tool for Rurge native mods (scaffolding, building, packaging, converting).
 #[derive(Parser, Debug)]
 #[command(
     name = "cargo-rurge",
@@ -80,6 +84,9 @@ pub enum Cli {
 
     /// Run the Rurge Horizon client
     Run(commands::run::RunArgs),
+
+    /// Convert a legacy Minecraft Java mod JAR into a native RMOD package
+    Convert(commands::convert::ConvertArgs),
 }
 
 /// Commands available under `cargo-rurge` or `cargo rurge`.
@@ -96,6 +103,9 @@ pub enum Commands {
 
     /// Run the Rurge Horizon client
     Run(commands::run::RunArgs),
+
+    /// Convert a legacy Minecraft Java mod JAR into a native RMOD package
+    Convert(commands::convert::ConvertArgs),
 }
 
 impl Cli {
@@ -117,6 +127,10 @@ impl Cli {
             }
             Cli::Pack(args) => {
                 commands::pack::execute(args)?;
+                Ok(())
+            }
+            Cli::Convert(args) => {
+                commands::convert::execute(args)?;
                 Ok(())
             }
         }
@@ -141,6 +155,10 @@ impl Commands {
             }
             Commands::Pack(args) => {
                 commands::pack::execute(args)?;
+                Ok(())
+            }
+            Commands::Convert(args) => {
+                commands::convert::execute(args)?;
                 Ok(())
             }
         }

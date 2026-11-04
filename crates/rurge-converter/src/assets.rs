@@ -26,6 +26,10 @@ pub struct ExtractedAssets {
     pub lang: HashMap<String, String>,
     /// Parsed standard Minecraft recipes.
     pub recipes: Vec<RecipeDef>,
+    /// Raw recipe JSON file buffers: identifier (e.g. `modid:recipe_name`) -> JSON bytes.
+    pub raw_recipes: HashMap<String, Vec<u8>>,
+    /// Raw language JSON file buffers: path (e.g. `assets/modid/lang/en_us.json`) -> JSON bytes.
+    pub raw_lang_files: HashMap<String, Vec<u8>>,
     /// Raw loot table JSON definitions.
     pub loot_tables: HashMap<String, Vec<u8>>,
 }
@@ -38,17 +42,17 @@ impl ExtractedAssets {
 
     /// Merges extracted assets, recipes, and lang into the provided `ContentIR`.
     /// Also infers missing model references on blocks and items when matching models exist.
-    pub fn merge_into(self, ir: &mut ContentIR) {
+    pub fn merge_into(&self, ir: &mut ContentIR) {
         let mod_id = ir.metadata.id.clone();
 
         // 1. Merge recipes
-        for recipe in self.recipes {
-            ir.add_recipe(recipe);
+        for recipe in &self.recipes {
+            ir.add_recipe(recipe.clone());
         }
 
         // 2. Merge language keys
-        for (k, v) in self.lang {
-            ir.lang.insert(k, v);
+        for (k, v) in &self.lang {
+            ir.lang.insert(k.clone(), v.clone());
         }
 
         // 3. Link block models if unset
@@ -472,6 +476,7 @@ pub fn extract_assets_from_zip<R: Read + Seek>(
                 extracted.textures.insert(key, buf);
             }
         } else if is_lang_json {
+            extracted.raw_lang_files.insert(normalized_path.clone(), buf.clone());
             let parsed_lang = std::str::from_utf8(&buf)
                 .ok()
                 .and_then(|text| parse_lang_json(text).ok());
@@ -487,6 +492,7 @@ pub fn extract_assets_from_zip<R: Read + Seek>(
             let maybe_recipe_id = parse_data_key(&normalized_path, "recipes", ".json")
                 .or_else(|| parse_data_key(&normalized_path, "recipe", ".json"));
             if let Some(recipe_id) = maybe_recipe_id {
+                extracted.raw_recipes.insert(recipe_id.clone(), buf.clone());
                 let parsed_recipe = std::str::from_utf8(&buf)
                     .ok()
                     .and_then(|text| parse_recipe_json(&recipe_id, text).ok().flatten());

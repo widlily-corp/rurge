@@ -165,6 +165,17 @@ pub enum RecipeDef {
     },
 }
 
+impl RecipeDef {
+    /// Returns the unique identifier of the recipe.
+    pub fn id(&self) -> &str {
+        match self {
+            RecipeDef::Shaped { id, .. } => id,
+            RecipeDef::Shapeless { id, .. } => id,
+            RecipeDef::Smelting { id, .. } => id,
+        }
+    }
+}
+
 /// Unified content intermediate representation holding all extracted assets and registrations.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContentIR {

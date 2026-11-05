@@ -106,7 +106,7 @@ impl RurgeHorizonHooks {
                 }
             }
         }
-        available.sort();
+        available.sort_by(|a, b| b.cmp(a));
         if available.is_empty() {
             available.push("test-classic-shader.zip".to_string());
         }
@@ -385,9 +385,13 @@ impl Hooks for RurgeHorizonHooks {
         }
     }
 
-    fn key(&self, _host: &mut dyn Host, event: &mut KeyEvent<'_>) {
+    fn key(&self, host: &mut dyn Host, event: &mut KeyEvent<'_>) {
         if event.pressed && event.key == "key.keyboard.k" {
             self.toggle_default_shaderpack();
+            let active = self.current_shader().unwrap_or_else(|| "Vanilla (Off)".to_string());
+            host.broadcast(Text::literal(format!(
+                "§6[Rurge]§r Shader set to: §e{active}§r (Active on reload. For live toggle: §bOptions > Video Settings > Shader Packs§r)"
+            )));
         }
     }
 

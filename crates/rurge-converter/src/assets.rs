@@ -404,7 +404,18 @@ pub fn extract_assets_from_zip<R: Read + Seek>(
             continue;
         }
 
-        let normalized_path = raw_name.replace('\\', "/");
+        let mut normalized_path = raw_name.replace('\\', "/");
+
+        // Validate and sanitize path according to Minecraft and Horizon rules
+        if !is_valid_horizon_path(&normalized_path) {
+            if let Some(sanitized) = sanitize_asset_path(&normalized_path) {
+                log::info!("Sanitized non-standard asset path '{normalized_path}' -> '{sanitized}'");
+                normalized_path = sanitized;
+            } else {
+                warn!("Skipping asset '{normalized_path}' that violates resource location specification");
+                continue;
+            }
+        }
 
         // Check if this path matches any asset or data pattern we are interested in
         let is_blockstate = normalized_path.starts_with("assets/")
@@ -530,4 +541,78 @@ fn parse_data_key(path: &str, folder: &str, ext: &str) -> Option<String> {
     let subpath_with_ext = rest.strip_prefix(&folder_prefix)?;
     let subpath = subpath_with_ext.strip_suffix(ext)?;
     Some(format!("{ns}:{subpath}"))
+}
+
+/// Validates if an archive path adheres to Horizon and Minecraft resource location rules:
+/// `assets/` or `data/`, then `/`-separated parts of `[a-z0-9_.-]`, none of them `.` or `..`.
+pub fn is_valid_horizon_path(name: &str) -> bool {
+    let mut parts = name.split('/');
+    if !matches!(parts.next(), Some("assets" | "data")) {
+        return false;
+    }
+    let mut count = 0;
+    for part in parts {
+        count += 1;
+        let chars_ok = part
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_.-".contains(&b));
+        if part.is_empty() || part == "." || part == ".." || !chars_ok {
+            return false;
+        }
+    }
+    count >= 2
+}
+
+/// Sanitizes a legacy or non-standard asset path into a valid Horizon resource path.
+///
+/// Replaces spaces with underscores, lowercases ASCII letters, normalizes accented characters,
+/// and returns `Some(sanitized)` if all resulting parts are valid `[a-z0-9_.-]`.
+pub fn sanitize_asset_path(raw_path: &str) -> Option<String> {
+    let normalized = raw_path.replace('\\', "/");
+    let mut parts: Vec<String> = Vec::new();
+    let mut iter = normalized.split('/');
+    let top = iter.next()?;
+    if top != "assets" && top != "data" {
+        return None;
+    }
+    parts.push(top.to_string());
+
+    for part in iter {
+        let mut clean = String::with_capacity(part.len());
+        for c in part.chars() {
+            if c.is_ascii_alphanumeric() {
+                clean.push(c.to_ascii_lowercase());
+            } else if c == ' ' || c == '_' {
+                clean.push('_');
+            } else if c == '.' || c == '-' {
+                clean.push(c);
+            } else {
+                match c {
+                    'á' | 'à' | 'â' | 'ä' | 'ã' | 'å' => clean.push('a'),
+                    'é' | 'è' | 'ê' | 'ë' => clean.push('e'),
+                    'í' | 'ì' | 'î' | 'ï' => clean.push('i'),
+                    'ó' | 'ò' | 'ô' | 'ö' | 'õ' => clean.push('o'),
+                    'ú' | 'ù' | 'û' | 'ü' => clean.push('u'),
+                    'ñ' => clean.push('n'),
+                    'ç' => clean.push('c'),
+                    _ => {}
+                }
+            }
+        }
+        if clean.is_empty() || clean == "." || clean == ".." {
+            return None;
+        }
+        parts.push(clean);
+    }
+
+    if parts.len() < 3 {
+        return None;
+    }
+
+    let result = parts.join("/");
+    if is_valid_horizon_path(&result) {
+        Some(result)
+    } else {
+        None
+    }
 }

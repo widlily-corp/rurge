@@ -159,6 +159,13 @@ fn write_zip_entry<W: Write + Seek>(
             bytes.len()
         )));
     }
+    // Protect against non-standard paths that violate Minecraft/Horizon path validation
+    if (path.starts_with("assets/") || path.starts_with("data/"))
+        && !crate::assets::is_valid_horizon_path(path)
+    {
+        log::warn!("Excluding invalid resource path from package: {path}");
+        return Ok(false);
+    }
     if written_entries.insert(path.to_string()) {
         zip.start_file(path, options)?;
         zip.write_all(bytes)?;
@@ -343,12 +350,14 @@ pub fn build_rmod_package(
     }
 
         // 11. Write Horizon content declarations (blocks, items, creative tabs)
+    let mut declared_block_subpaths = HashSet::new();
     for block in &ir.blocks {
         let (ns, subpath) = if let Some((ns, sub)) = block.id.split_once(':') {
             (ns, sub)
         } else {
             (default_ns.as_str(), block.id.as_str())
         };
+        declared_block_subpaths.insert(subpath.to_string());
         let zip_path = format!("data/{ns}/horizon/block/{subpath}.json");
         let block_json = r#"{"template":"minecraft:stone","item":true}"#;
         write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, block_json.as_bytes())?;
@@ -360,6 +369,11 @@ pub fn build_rmod_package(
         } else {
             (default_ns.as_str(), item.id.as_str())
         };
+        // When a block has "item": true in Horizon, its item is already declared with the block's ID.
+        // Declaring a separate data/<ns>/horizon/item/<id>.json results in an 'also a block item' error.
+        if declared_block_subpaths.contains(subpath) {
+            continue;
+        }
         let zip_path = format!("data/{ns}/horizon/item/{subpath}.json");
         let stack_size = item.max_stack_size.clamp(1, 99);
         let item_json = format!(r#"{{"template":"minecraft:stick","max_stack_size":{stack_size}}}"#);

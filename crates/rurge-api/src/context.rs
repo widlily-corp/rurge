@@ -1,8 +1,12 @@
+use std::any::Any;
+use std::sync::{Arc, RwLock};
 use abi_stable::{
     std_types::RString,
     StableAbi,
 };
 use serde::{Deserialize, Serialize};
+
+static CENTRAL_EVENT_BUS: RwLock<Option<Arc<dyn Any + Send + Sync>>> = RwLock::new(None);
 
 /// Context passed to a mod during initialization and lifecycle phases.
 ///
@@ -34,5 +38,33 @@ impl RurgeContext {
             mod_dir: mod_dir.into(),
             config_dir: config_dir.into(),
         }
+    }
+
+    /// Sets the central shared event bus instance.
+    pub fn set_event_bus<T: 'static + Send + Sync>(bus: Arc<T>) {
+        if let Ok(mut lock) = CENTRAL_EVENT_BUS.write() {
+            *lock = Some(bus);
+        }
+    }
+
+    /// Clears the central shared event bus instance.
+    pub fn clear_event_bus() {
+        if let Ok(mut lock) = CENTRAL_EVENT_BUS.write() {
+            *lock = None;
+        }
+    }
+
+    /// Returns the central shared event bus instance downcasted to `Arc<T>`.
+    pub fn event_bus<T: 'static + Send + Sync>() -> Option<Arc<T>> {
+        if let Ok(lock) = CENTRAL_EVENT_BUS.read() {
+            lock.as_ref().and_then(|b| b.clone().downcast::<T>().ok())
+        } else {
+            None
+        }
+    }
+
+    /// Retrieves the central shared event bus from an instance of `RurgeContext`.
+    pub fn get_event_bus<T: 'static + Send + Sync>(&self) -> Option<Arc<T>> {
+        Self::event_bus()
     }
 }

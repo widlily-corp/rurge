@@ -2,7 +2,7 @@ use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use rurge_api::events::{
-    BlockBreakEvent, CancellableEvent, EntityDamageEvent, PlayerInteractEvent, WorldTickEvent,
+    BlockBreakEvent, EntityDamageEvent, PlayerInteractEvent, WorldTickEvent,
 };
 use rurge_blamer::{safe_invoke, Blamer};
 use rurge_core::EventPriority;

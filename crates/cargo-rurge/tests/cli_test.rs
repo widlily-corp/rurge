@@ -1,9 +1,11 @@
 use std::fs::{self, File};
+use std::path::PathBuf;
 use tempfile::tempdir;
 
 use cargo_rurge::commands::new::{self, NewArgs, TemplateFlavor};
 use cargo_rurge::commands::pack::{self, PackArgs};
-use cargo_rurge::{Cli, Commands};
+use cargo_rurge::commands::run::{self, RunArgs};
+use cargo_rurge::{CargoRurgeError, Cli, Commands};
 use clap::Parser;
 use rurge_core::manifest::ModManifest;
 use rurge_loader::{current_target_triple, RmodArchive};
@@ -60,6 +62,39 @@ fn test_cli_parsing_direct_and_cargo_subcommand() {
             assert!(args.args.is_empty());
         }
         _ => panic!("Expected Cli::Rurge(Commands::Run)"),
+    }
+}
+
+#[test]
+fn test_cli_parsing_run_options() {
+    let parsed = Cli::try_parse_from([
+        "cargo-rurge",
+        "run",
+        "--release",
+        "--dry-run",
+        "--no-build",
+        "--mods-dir",
+        "./custom_mods",
+        "--path",
+        "./my_mod",
+        "--target",
+        "x86_64-pc-windows-msvc",
+        "--",
+        "--windowed",
+    ])
+    .expect("Failed to parse full run options");
+
+    match parsed {
+        Cli::Run(args) => {
+            assert!(args.release);
+            assert!(args.dry_run);
+            assert!(args.no_build);
+            assert_eq!(args.mods_dir, Some(PathBuf::from("./custom_mods")));
+            assert_eq!(args.path, Some(PathBuf::from("./my_mod")));
+            assert_eq!(args.target, Some("x86_64-pc-windows-msvc".to_string()));
+            assert_eq!(args.args, vec!["--windowed"]);
+        }
+        _ => panic!("Expected Cli::Run"),
     }
 }
 
@@ -244,4 +279,103 @@ fn test_pack_mod_creates_valid_rmod_archive() {
     assert!(extracted_bin.exists());
     let extracted_bytes = fs::read(extracted_bin).unwrap();
     assert_eq!(extracted_bytes, binary_bytes);
+}
+
+#[test]
+fn test_run_command_dev_link_and_dry_run() {
+    let tmp = tempdir().expect("Failed to create tempdir");
+    let project_dir = tmp.path().join("my_dev_mod");
+    fs::create_dir_all(&project_dir).unwrap();
+
+    let manifest_toml = r#"
+        id = "my_dev_mod"
+        name = "My Dev Mod"
+        version = "0.5.0"
+        description = "Dev mod for run testing"
+        authors = ["Dev"]
+    "#;
+    fs::write(project_dir.join("rurge.toml"), manifest_toml).unwrap();
+
+    let target_debug_dir = project_dir.join("target").join("debug");
+    fs::create_dir_all(&target_debug_dir).unwrap();
+
+    #[cfg(target_os = "windows")]
+    let dylib_name = "my_dev_mod.dll";
+    #[cfg(target_os = "linux")]
+    let dylib_name = "libmy_dev_mod.so";
+    #[cfg(target_os = "macos")]
+    let dylib_name = "libmy_dev_mod.dylib";
+
+    let fake_binary = b"dev-mode-binary-payload";
+    fs::write(target_debug_dir.join(dylib_name), fake_binary).unwrap();
+
+    let mods_dir = tmp.path().join("dev_mods");
+
+    let run_args = RunArgs {
+        release: false,
+        path: Some(project_dir.clone()),
+        mods_dir: Some(mods_dir.clone()),
+        target: None,
+        no_build: true, // skip invoking cargo build on mock
+        dry_run: true,  // do not launch real client binary
+        args: vec![],
+    };
+
+    run::execute(run_args).expect("run::execute failed in dry-run mode");
+
+    let linked_rmod = mods_dir.join("my_dev_mod-0.5.0.rmod");
+    assert!(linked_rmod.is_file(), "Linked .rmod package was not found in mods_dir");
+
+    // Verify the deployed archive
+    let archive = RmodArchive::open(&linked_rmod).expect("Failed to open linked .rmod package");
+    let manifest = archive.read_manifest().expect("Failed to read manifest");
+    assert_eq!(manifest.id, "my_dev_mod");
+    assert_eq!(manifest.version, semver::Version::new(0, 5, 0));
+
+    let extract_dir = tmp.path().join("extracted_dev");
+    let extracted_bin = archive
+        .extract_binary(current_target_triple(), &extract_dir)
+        .expect("Failed to extract deployed binary");
+    assert_eq!(fs::read(extracted_bin).unwrap(), fake_binary);
+}
+
+#[test]
+fn test_run_command_link_file_fallback() {
+    let tmp = tempdir().expect("Failed to create tempdir");
+    let src = tmp.path().join("source.txt");
+    let dst = tmp.path().join("dest").join("linked.txt");
+
+    fs::write(&src, b"link-test-data-v1").unwrap();
+    run::link_file(&src, &dst).expect("link_file failed");
+    assert_eq!(fs::read(&dst).unwrap(), b"link-test-data-v1");
+
+    // Overwriting source and re-linking replaces destination cleanly
+    fs::write(&src, b"link-test-data-v2").unwrap();
+    run::link_file(&src, &dst).expect("re-link failed");
+    assert_eq!(fs::read(&dst).unwrap(), b"link-test-data-v2");
+}
+
+#[test]
+fn test_run_command_missing_manifest_error() {
+    let tmp = tempdir().expect("Failed to create tempdir");
+    let empty_dir = tmp.path().join("empty_crate");
+    fs::create_dir_all(&empty_dir).unwrap();
+
+    let run_args = RunArgs {
+        release: false,
+        path: Some(empty_dir.clone()),
+        mods_dir: None,
+        target: None,
+        no_build: true,
+        dry_run: true,
+        args: vec![],
+    };
+
+    let result = run::execute(run_args);
+    match result {
+        Err(CargoRurgeError::ManifestNotFound(path)) => {
+            assert_eq!(path, empty_dir.join("rurge.toml"));
+        }
+        other => panic!("Expected ManifestNotFound, got {other:?}"),
+    }
 }

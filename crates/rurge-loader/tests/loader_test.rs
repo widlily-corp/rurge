@@ -283,3 +283,224 @@ fn test_dylib_loader_missing_file() {
         Ok(_) => panic!("Expected failure loading non-existent dylib"),
     }
 }
+
+fn find_simple_hud_dylib() -> Option<PathBuf> {
+    let candidates = [
+        PathBuf::from("target/debug/simple_hud_mod.dll"),
+        PathBuf::from("target/debug/libsimple_hud_mod.so"),
+        PathBuf::from("target/debug/libsimple_hud_mod.dylib"),
+        PathBuf::from("../../target/debug/simple_hud_mod.dll"),
+        PathBuf::from("../../target/debug/libsimple_hud_mod.so"),
+        PathBuf::from("../../target/debug/libsimple_hud_mod.dylib"),
+    ];
+    for c in &candidates {
+        if c.is_file() {
+            return Some(std::fs::canonicalize(c).unwrap_or_else(|_| c.clone()));
+        }
+    }
+    None
+}
+
+fn get_or_build_simple_hud_dylib() -> Option<PathBuf> {
+    if let Some(p) = find_simple_hud_dylib() {
+        return Some(p);
+    }
+    let _ = std::process::Command::new("cargo")
+        .args(["build", "-p", "simple-hud-mod", "-j", "2"])
+        .status();
+    find_simple_hud_dylib()
+}
+
+#[test]
+fn test_reload_plugin_not_found() {
+    let tmp = tempdir().unwrap();
+    let blamer = Arc::new(Blamer::new());
+    let mut manager = ModManager::new(blamer);
+    let cache_dir = tmp.path().join("cache");
+
+    let err = manager.reload_plugin("non_existent", &cache_dir).unwrap_err();
+    match err {
+        LoaderError::ModNotFound(id) => assert_eq!(id, "non_existent"),
+        other => panic!("Expected ModNotFound, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_unload_plugin() {
+    let Some(dylib_path) = get_or_build_simple_hud_dylib() else {
+        return;
+    };
+    let blamer = Arc::new(Blamer::new());
+    let mut manager = ModManager::new(blamer);
+
+    let (plugin, lib) = unsafe { load_plugin_from_dylib(&dylib_path).unwrap() };
+    let metadata = plugin.metadata();
+    let manifest = rurge_core::ModManifest::from_toml_str(
+        r#"
+id = "simple_hud"
+name = "Simple HUD Mod"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    let loaded = Arc::new(rurge_loader::LoadedPlugin {
+        manifest,
+        metadata,
+        plugin: parking_lot::Mutex::new(plugin),
+        _library: lib,
+    });
+
+    manager.register_loaded_plugin(loaded, None, Some(dylib_path));
+    assert_eq!(manager.loaded_plugins().len(), 1);
+    assert!(manager.get_plugin("simple_hud").is_some());
+
+    let unloaded = manager.unload_plugin("simple_hud").expect("Failed to unload plugin");
+    assert_eq!(unloaded.manifest.id, "simple_hud");
+    assert_eq!(manager.loaded_plugins().len(), 0);
+    assert!(manager.get_plugin("simple_hud").is_none());
+}
+
+#[test]
+fn test_hot_reload_rmod_archive() {
+    let tmp = tempdir().unwrap();
+    let Some(dylib_path) = get_or_build_simple_hud_dylib() else {
+        return;
+    };
+    let dylib_bytes = std::fs::read(&dylib_path).unwrap();
+
+    let mods_dir = tmp.path().join("mods");
+    let cache_dir = tmp.path().join("cache");
+    std::fs::create_dir_all(&mods_dir).unwrap();
+    std::fs::create_dir_all(&cache_dir).unwrap();
+
+    let target = current_target_triple();
+    let bin_entry = format!("binaries/{target}/simple_hud.dll");
+
+    let manifest_v1 = r#"
+id = "simple_hud"
+name = "Simple HUD Mod"
+version = "0.1.0"
+"#;
+    let _ = create_test_rmod(
+        &mods_dir,
+        "simple_hud-0.1.0.rmod",
+        Some(manifest_v1),
+        &[(&bin_entry, &dylib_bytes)],
+        &[],
+    );
+
+    let blamer = Arc::new(Blamer::new());
+    let mut manager = ModManager::new(blamer);
+
+    // Initial load
+    let loaded = manager.load_mods(&mods_dir, &cache_dir).unwrap();
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].manifest.version.to_string(), "0.1.0");
+    assert_eq!(manager.loaded_plugins().len(), 1);
+
+    // Update archive to version 0.2.0 (simulating developer build/pack)
+    let manifest_v2 = r#"
+id = "simple_hud"
+name = "Simple HUD Mod"
+version = "0.2.0"
+"#;
+    let _ = create_test_rmod(
+        &mods_dir,
+        "simple_hud-0.1.0.rmod",
+        Some(manifest_v2),
+        &[(&bin_entry, &dylib_bytes)],
+        &[],
+    );
+
+    // Perform hot reload
+    let reloaded = manager
+        .reload_plugin("simple_hud", &cache_dir)
+        .expect("Hot reload failed");
+    assert_eq!(reloaded.manifest.id, "simple_hud");
+    assert_eq!(reloaded.manifest.version.to_string(), "0.2.0");
+    assert_eq!(manager.loaded_plugins().len(), 1);
+
+    let meta = reloaded.metadata.clone();
+    assert_eq!(meta.id.as_str(), "simple_hud");
+}
+
+#[test]
+fn test_hot_reload_direct_dylib() {
+    let tmp = tempdir().unwrap();
+    let Some(dylib_path) = get_or_build_simple_hud_dylib() else {
+        return;
+    };
+    let dylib_bytes = std::fs::read(&dylib_path).unwrap();
+
+    let cache_dir = tmp.path().join("cache");
+    let mod_cache = cache_dir.join("simple_hud");
+    std::fs::create_dir_all(&mod_cache).unwrap();
+
+    #[cfg(target_os = "windows")]
+    let dylib_name = "simple_hud.dll";
+    #[cfg(target_os = "linux")]
+    let dylib_name = "libsimple_hud.so";
+    #[cfg(target_os = "macos")]
+    let dylib_name = "libsimple_hud.dylib";
+
+    let placed_dylib = mod_cache.join(dylib_name);
+    std::fs::write(&placed_dylib, &dylib_bytes).unwrap();
+
+    let manifest_toml = r#"
+id = "simple_hud"
+name = "Simple HUD Mod Direct"
+version = "1.0.0"
+"#;
+    std::fs::write(mod_cache.join("rurge.toml"), manifest_toml).unwrap();
+
+    let blamer = Arc::new(Blamer::new());
+    let mut manager = ModManager::new(blamer);
+
+    // Initial registration
+    let (plugin, lib) = unsafe { load_plugin_from_dylib(&placed_dylib).unwrap() };
+    let metadata = plugin.metadata();
+    let manifest = rurge_core::ModManifest::from_file(mod_cache.join("rurge.toml")).unwrap();
+    let loaded = Arc::new(rurge_loader::LoadedPlugin {
+        manifest,
+        metadata,
+        plugin: parking_lot::Mutex::new(plugin),
+        _library: lib,
+    });
+    manager.register_loaded_plugin(loaded, None, Some(placed_dylib.clone()));
+
+    // Update manifest to 1.1.0
+    let updated_manifest = r#"
+id = "simple_hud"
+name = "Simple HUD Mod Direct"
+version = "1.1.0"
+"#;
+    std::fs::write(mod_cache.join("rurge.toml"), updated_manifest).unwrap();
+
+    // Hot reload directly from dylib in cache
+    let reloaded = manager
+        .reload_plugin("simple_hud", &cache_dir)
+        .expect("Direct dylib reload failed");
+    assert_eq!(reloaded.manifest.version.to_string(), "1.1.0");
+    assert_eq!(manager.loaded_plugins().len(), 1);
+}
+
+#[test]
+fn test_dylib_copy_loader() {
+    let tmp = tempdir().unwrap();
+    let Some(dylib_path) = get_or_build_simple_hud_dylib() else {
+        return;
+    };
+    let dest_path = tmp
+        .path()
+        .join("copied_dylib")
+        .join(dylib_path.file_name().unwrap());
+
+    let (plugin, lib) = unsafe {
+        rurge_loader::dylib::load_plugin_from_dylib_copy(&dylib_path, &dest_path)
+            .expect("Copy load failed")
+    };
+    assert_eq!(plugin.metadata().id.as_str(), "simple_hud");
+    assert!(dest_path.exists());
+    drop(plugin);
+    drop(lib);
+}

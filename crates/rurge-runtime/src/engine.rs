@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use parking_lot::RwLock;
+use rurge_api::block_entity::{BlockEntity, BlockPos};
 use rurge_api::events::RenderPassContext;
 use rurge_api::lifecycle::{InitEvent, PreInitEvent, ServerStoppingEvent};
 use rurge_api::RurgeContext;
@@ -9,6 +10,7 @@ use rurge_blamer::{safe_invoke, Blamer, PanicError};
 use rurge_core::EventBus;
 use rurge_loader::{LoaderError, ModManager};
 
+use crate::block_entity::BlockEntityManager;
 use crate::content_schema::ContentSchemaExecutor;
 use crate::hooks::{ClientTickEvent, ServerTickEvent, TickHooks};
 use crate::render::RenderPipelineHooks;
@@ -43,6 +45,7 @@ pub struct RurgeEngine {
     content: Arc<ContentSchemaExecutor>,
     render_hooks: RenderPipelineHooks,
     tick_hooks: TickHooks,
+    block_entities: Arc<BlockEntityManager>,
     initialized: AtomicBool,
     shader_uniforms: RwLock<[[f32; 4]; 8]>,
 }
@@ -61,6 +64,7 @@ impl RurgeEngine {
         let content = Arc::new(ContentSchemaExecutor::new());
         let render_hooks = RenderPipelineHooks::new();
         let tick_hooks = TickHooks::new();
+        let block_entities = Arc::new(BlockEntityManager::new());
 
         Self {
             mods_dir: mods_dir.into(),
@@ -71,6 +75,7 @@ impl RurgeEngine {
             content,
             render_hooks,
             tick_hooks,
+            block_entities,
             initialized: AtomicBool::new(false),
             shader_uniforms: RwLock::new([[0.0f32; 4]; 8]),
         }
@@ -193,10 +198,12 @@ impl RurgeEngine {
         self.tick_hooks.execute_client_ticks(tick_count, &self.blamer);
     }
 
-    /// Dispatches server tick event through `event_bus` and executes registered server tick handlers.
+    /// Dispatches server tick event through `event_bus`, executes 20 TPS block entity world ticks
+    /// within safe panic boundaries, and executes registered server tick handlers.
     pub fn server_tick(&self, tick_count: u64) {
         let mut event = ServerTickEvent { tick_count };
         self.event_bus.dispatch(&mut event);
+        self.block_entities.tick_all(tick_count, &self.blamer);
         self.tick_hooks.execute_server_ticks(tick_count, &self.blamer);
     }
 
@@ -266,6 +273,26 @@ impl RurgeEngine {
     /// Returns a mutable reference to the tick hooks registry.
     pub fn tick_hooks_mut(&mut self) -> &mut TickHooks {
         &mut self.tick_hooks
+    }
+
+    /// Returns a reference to the block entity manager.
+    pub fn block_entities(&self) -> &Arc<BlockEntityManager> {
+        &self.block_entities
+    }
+
+    /// Convenience helper to register a block entity at the given coordinates.
+    pub fn register_block_entity<T: BlockEntity + 'static>(
+        &self,
+        mod_id: impl Into<String>,
+        pos: BlockPos,
+        entity: T,
+    ) {
+        self.block_entities.register(mod_id, pos, entity);
+    }
+
+    /// Explicitly executes a 20 TPS world tick cycle for all registered block entities.
+    pub fn tick_world(&self, tick_count: u64) {
+        self.block_entities.tick_all(tick_count, &self.blamer);
     }
 
     /// Convenience helper to register a client tick handler.

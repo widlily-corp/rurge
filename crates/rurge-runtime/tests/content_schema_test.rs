@@ -17,6 +17,7 @@ fn create_sample_schema(mod_id: &str) -> ContentSchema {
         light_emission: 0,
         opaque: true,
         model: Some(format!("{mod_id}:block/fancy_copper_block")),
+        triggers: Vec::new(),
     };
 
     let item = SchemaItem {
@@ -32,6 +33,7 @@ fn create_sample_schema(mod_id: &str) -> ContentSchema {
         food: None,
         rarity: "common".to_string(),
         model: Some(format!("{mod_id}:item/copper_wrench")),
+        actions: Vec::new(),
     };
 
     let mut key = HashMap::new();
@@ -63,6 +65,8 @@ fn create_sample_schema(mod_id: &str) -> ContentSchema {
         blocks: vec![block],
         items: vec![item],
         recipes: vec![shaped_recipe, shapeless_recipe],
+        item_actions: Vec::new(),
+        block_triggers: Vec::new(),
     }
 }
 

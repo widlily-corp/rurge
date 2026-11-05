@@ -2,6 +2,9 @@
 
 use crate::error::Result;
 use crate::ir::{ContentIR, RecipeDef, ToolType};
+pub use crate::ir::{
+    ActionCondition, ActionEffect, BlockTriggerDef, BlockTriggerType, ItemActionDef, ItemTrigger,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -19,6 +22,8 @@ pub struct SchemaBlock {
     pub opaque: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub triggers: Vec<BlockTriggerDef>,
 }
 
 /// Tool efficiency and mining statistics.
@@ -100,6 +105,8 @@ pub struct SchemaItem {
     pub rarity: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<ItemActionDef>,
 }
 
 /// Root declarative `content.json` structure.
@@ -110,6 +117,10 @@ pub struct ContentSchema {
     pub blocks: Vec<SchemaBlock>,
     pub items: Vec<SchemaItem>,
     pub recipes: Vec<SchemaRecipe>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub item_actions: Vec<ItemActionDef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub block_triggers: Vec<BlockTriggerDef>,
 }
 
 impl ContentSchema {
@@ -128,6 +139,7 @@ impl ContentSchema {
                 light_emission: b.light_emission,
                 opaque: b.opaque,
                 model: b.model.clone(),
+                triggers: b.triggers.clone(),
             })
             .collect();
 
@@ -151,6 +163,7 @@ impl ContentSchema {
                 }),
                 rarity: i.rarity.clone(),
                 model: i.model.clone(),
+                actions: i.actions.clone(),
             })
             .collect();
 
@@ -211,6 +224,8 @@ impl ContentSchema {
             blocks,
             items,
             recipes,
+            item_actions: ir.item_actions.clone(),
+            block_triggers: ir.block_triggers.clone(),
         }
     }
 

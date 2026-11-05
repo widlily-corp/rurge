@@ -3519,6 +3519,7 @@ dependencies = [
  "env_logger",
  "horizon-client",
  "horizon-client-render",
+ "horizon-mods",
  "horizon-shaders",
  "log",
  "parking_lot",

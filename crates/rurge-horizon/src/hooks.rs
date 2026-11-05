@@ -3,9 +3,10 @@ use std::process::Command;
 use std::sync::Arc;
 use abi_stable::std_types::RString;
 use horizon_client::mod_api::{
-    CommandEvent, CommandsEvent, Corner, Flow, Hooks, Host, HudEvent, KeyEvent, ModsEvent,
-    NativeMod, SettingsClickEvent, SettingsEvent, ShaderParamsEvent, Text,
+    BlocksEvent, CommandEvent, CommandsEvent, Corner, Flow, Hooks, Host, HudEvent, ItemsEvent,
+    KeyEvent, ModsEvent, NativeMod, SettingsClickEvent, SettingsEvent, ShaderParamsEvent, Text,
 };
+use horizon_mods::content::{Block as HorizonBlock, Item as HorizonItem};
 use horizon_client_render::gfx::native_render::{
     wgpu, HandDrawnEvent, RenderHooks, RenderNeedsEvent, WorldDrawnEvent,
 };
@@ -24,9 +25,10 @@ pub struct RurgeHorizonHooks {
 impl RurgeHorizonHooks {
     /// Creates a new native hooks bridge wrapping the shared runtime engine.
     pub fn new(engine: Arc<RurgeEngine>) -> Self {
+        let initial_shader = Self::query_active_shaderpack();
         Self {
             engine,
-            current_shader: RwLock::new(None),
+            current_shader: RwLock::new(initial_shader),
         }
     }
 
@@ -37,7 +39,14 @@ impl RurgeHorizonHooks {
 
     /// Returns the currently tracked active shaderpack name, if any.
     pub fn current_shader(&self) -> Option<String> {
-        self.current_shader.read().clone()
+        let val = self.current_shader.read().clone();
+        if val.is_none() {
+            if let Some(active) = Self::query_active_shaderpack() {
+                *self.current_shader.write() = Some(active.clone());
+                return Some(active);
+            }
+        }
+        val
     }
 
     /// Queries the currently active shaderpack name from `horizon-graphics.txt` in the specified directory.
@@ -83,10 +92,38 @@ impl RurgeHorizonHooks {
     pub fn toggle_default_shaderpack_in(&self, dir: &Path) {
         let path = dir.join("horizon-graphics.txt");
         let current = Self::query_active_shaderpack_in(dir);
-        let new_val = if current.as_deref() == Some("test-classic-shader.zip") {
-            ""
-        } else {
-            "test-classic-shader.zip"
+
+        // Discover all shaderpack .zip files in shaderpacks/ directory
+        let sp_dir = dir.join("shaderpacks");
+        let mut available: Vec<String> = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&sp_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_file() && p.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("zip")) {
+                    if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                        available.push(name.to_string());
+                    }
+                }
+            }
+        }
+        available.sort();
+        if available.is_empty() {
+            available.push("test-classic-shader.zip".to_string());
+        }
+
+        let new_val = match &current {
+            None => available.first().map(|s| s.as_str()).unwrap_or(""),
+            Some(cur) => {
+                if let Some(idx) = available.iter().position(|s| s == cur) {
+                    if idx + 1 < available.len() {
+                        available[idx + 1].as_str()
+                    } else {
+                        ""
+                    }
+                } else {
+                    available.first().map(|s| s.as_str()).unwrap_or("")
+                }
+            }
         };
 
         let content = std::fs::read_to_string(&path).unwrap_or_default();
@@ -285,6 +322,32 @@ impl Hooks for RurgeHorizonHooks {
         Some(self)
     }
 
+    fn blocks(&self, event: &mut BlocksEvent<'_>) {
+        for block in self.engine.content().all_blocks() {
+            if !event.blocks.iter().any(|b| b.id == block.id) {
+                event.blocks.push(HorizonBlock {
+                    id: block.id.clone(),
+                    template: "minecraft:stone".to_string(),
+                    item: true,
+                    ..Default::default()
+                });
+            }
+        }
+    }
+
+    fn items(&self, event: &mut ItemsEvent<'_>) {
+        for item in self.engine.content().all_items() {
+            if !event.items.iter().any(|i| i.id == item.id) {
+                event.items.push(HorizonItem {
+                    id: item.id.clone(),
+                    template: "minecraft:stick".to_string(),
+                    max_stack_size: Some(item.max_stack_size.clamp(1, 99) as u8),
+                    ..Default::default()
+                });
+            }
+        }
+    }
+
     fn shader_params(&self, _host: &dyn Host, event: &mut ShaderParamsEvent<'_>) {
         self.shader_params(event.params);
     }
@@ -347,7 +410,12 @@ impl Hooks for RurgeHorizonHooks {
         // Cyan accent indicator on left border
         host.fill(event.batch, [x, y, 3.0, 38.0], 0xFF00D1FF);
 
-        let loaded_count = self.engine.mod_manager().loaded_plugins().len();
+        let native_count = self.engine.mod_manager().loaded_plugins().len();
+        let converted_count = self.engine.content().loaded_mods().len();
+        let total_count = native_count + converted_count;
+        let b_count = self.engine.content().block_count();
+        let i_count = self.engine.content().item_count();
+
         let active = self.current_shader().unwrap_or_else(|| "Vanilla (Off)".to_string());
 
         host.text(event.batch, "RURGE NATIVE 0.2.0", [x + 8.0, y + 4.0], 0x00D1FF, true);
@@ -358,9 +426,14 @@ impl Hooks for RurgeHorizonHooks {
             0xFFDD44,
             true,
         );
+        let mods_label = if b_count > 0 || i_count > 0 {
+            format!("Mods: {} loaded ({} items, {} blocks)", total_count, i_count, b_count)
+        } else {
+            format!("Mods: {} loaded (.rmod)", total_count)
+        };
         host.text(
             event.batch,
-            &format!("Mods: {} loaded (.rmod)", loaded_count),
+            &mods_label,
             [x + 8.0, y + 26.0],
             0xCCCCCC,
             true,

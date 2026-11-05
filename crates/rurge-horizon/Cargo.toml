@@ -14,6 +14,7 @@ rurge-runtime = { path = "../rurge-runtime" }
 rurge-converter = { path = "../rurge-converter" }
 horizon-client = { path = "../../../horizon/crates/horizon-client" }
 horizon-client-render = { path = "../../../horizon/crates/horizon-client-render" }
+horizon-mods = { path = "../../../horizon/crates/horizon-mods" }
 horizon-shaders = { path = "../../../horizon/crates/horizon-shaders" }
 abi_stable = { workspace = true }
 parking_lot = "0.12"

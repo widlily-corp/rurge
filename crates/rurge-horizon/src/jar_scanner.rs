@@ -41,9 +41,13 @@ pub fn convert_dropped_jars_in(mods_dir: &Path) -> Vec<ConversionSummary> {
         }
 
         let rmod_path = jar_path.with_extension("rmod");
+        let hmod_path = jar_path.with_extension("hmod");
 
         // Idempotent caching: check if corresponding .rmod exists and is newer than or equal to JAR mtime
         if rmod_path.is_file() {
+            if !hmod_path.is_file() {
+                let _ = std::fs::copy(&rmod_path, &hmod_path);
+            }
             let jar_mtime = jar_path.metadata().and_then(|m| m.modified()).ok();
             let rmod_mtime = rmod_path.metadata().and_then(|m| m.modified()).ok();
 
@@ -74,6 +78,7 @@ pub fn convert_dropped_jars_in(mods_dir: &Path) -> Vec<ConversionSummary> {
                     summary.items_count,
                     summary.recipes_count
                 );
+                let _ = std::fs::copy(&rmod_path, &hmod_path);
                 summaries.push(summary);
             }
             Err(e) => {

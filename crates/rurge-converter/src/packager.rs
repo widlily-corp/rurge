@@ -108,6 +108,22 @@ pub fn generate_rurge_toml(meta: &ModMetadata) -> String {
     )
 }
 
+/// Generates `horizon-mod.toml` manifest for Horizon engine content mod compatibility.
+pub fn generate_horizon_mod_toml(meta: &ModMetadata) -> String {
+    let sanitized_version = sanitize_semver(&meta.version);
+    let authors_toml = meta
+        .authors
+        .iter()
+        .map(|a| format!("\"{}\"", a.replace('"', "\\\"")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let desc = meta.description.replace('"', "\\\"");
+    format!(
+        "id = \"{}\"\nname = \"{}\"\nversion = \"{}\"\ndescription = \"{}\"\nauthors = [{}]\napi = \"0.2\"\nside = \"both\"\ncapabilities = [\"registries\"]\n",
+        meta.id, meta.name, sanitized_version, desc, authors_toml
+    )
+}
+
 /// Safely reads from an uncompressed ZIP entry stream up to `MAX_UNCOMPRESSED_ENTRY_SIZE` (64 MB).
 ///
 /// Protects against zip bombs (decompression bombs) and memory exhaustion.
@@ -191,6 +207,16 @@ pub fn build_rmod_package(
         options,
         "rurge.toml",
         rurge_toml.as_bytes(),
+    )?;
+
+    // 2b. Write horizon-mod.toml (for Horizon engine content mod compatibility)
+    let horizon_toml = generate_horizon_mod_toml(&ir.metadata);
+    write_zip_entry(
+        &mut zip,
+        &mut written_entries,
+        options,
+        "horizon-mod.toml",
+        horizon_toml.as_bytes(),
     )?;
 
     // 3. Write content.json
@@ -316,7 +342,68 @@ pub fn build_rmod_package(
         )?;
     }
 
+        // 11. Write Horizon content declarations (blocks, items, creative tabs)
+    for block in &ir.blocks {
+        let (ns, subpath) = if let Some((ns, sub)) = block.id.split_once(':') {
+            (ns, sub)
+        } else {
+            (default_ns.as_str(), block.id.as_str())
+        };
+        let zip_path = format!("data/{ns}/horizon/block/{subpath}.json");
+        let block_json = r#"{"template":"minecraft:stone","item":true}"#;
+        write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, block_json.as_bytes())?;
+    }
+
+    for item in &ir.items {
+        let (ns, subpath) = if let Some((ns, sub)) = item.id.split_once(':') {
+            (ns, sub)
+        } else {
+            (default_ns.as_str(), item.id.as_str())
+        };
+        let zip_path = format!("data/{ns}/horizon/item/{subpath}.json");
+        let stack_size = item.max_stack_size.clamp(1, 99);
+        let item_json = format!(r#"{{"template":"minecraft:stick","max_stack_size":{stack_size}}}"#);
+        write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, item_json.as_bytes())?;
+    }
+
+    let mut tab_items = Vec::new();
+    for b in &ir.blocks {
+        let full_id = if b.id.contains(':') {
+            b.id.clone()
+        } else {
+            format!("{default_ns}:{}", b.id)
+        };
+        tab_items.push(full_id);
+    }
+    for i in &ir.items {
+        let full_id = if i.id.contains(':') {
+            i.id.clone()
+        } else {
+            format!("{default_ns}:{}", i.id)
+        };
+        if !tab_items.contains(&full_id) {
+            tab_items.push(full_id);
+        }
+    }
+    let icon_id = tab_items.first().cloned().unwrap_or_else(|| format!("{default_ns}:item"));
+    let tab_json = serde_json::json!({
+        "title": ir.metadata.name,
+        "icon": icon_id,
+        "items": tab_items,
+    });
+    if let Ok(tab_bytes) = serde_json::to_vec_pretty(&tab_json) {
+        let tab_path = format!("data/{default_ns}/horizon/creative_tab/{default_ns}.json");
+        write_zip_entry(&mut zip, &mut written_entries, options, &tab_path, &tab_bytes)?;
+    }
+
     zip.finish()?;
+    // 12. Also ensure a twin .hmod package is created if saving to a .rmod path
+    if output_path.extension().and_then(|e| e.to_str()) == Some("rmod") {
+        let hmod_path = output_path.with_extension("hmod");
+        if let Err(e) = std::fs::copy(output_path, &hmod_path) {
+            log::debug!("Could not auto-create twin .hmod package: {e}");
+        }
+    }
     Ok(())
 }
 

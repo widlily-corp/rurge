@@ -9,10 +9,15 @@ use crate::schema::{ContentSchema, SchemaRecipe, SchemaRecipeResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::{Seek, Write};
+use std::io::{Read, Seek, Write};
 use std::path::Path;
 use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
+
+/// Maximum allowable uncompressed size for any individual package entry (64 MB).
+///
+/// Guards against decompression bombs (zip bombs) and out-of-memory denial-of-service.
+pub const MAX_UNCOMPRESSED_ENTRY_SIZE: usize = 64 * 1024 * 1024;
 
 /// Section `[mod]` of `manifest.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,6 +108,28 @@ pub fn generate_rurge_toml(meta: &ModMetadata) -> String {
     )
 }
 
+/// Safely reads from an uncompressed ZIP entry stream up to `MAX_UNCOMPRESSED_ENTRY_SIZE` (64 MB).
+///
+/// Protects against zip bombs (decompression bombs) and memory exhaustion.
+pub fn read_bounded_entry<R: Read>(reader: &mut R) -> Result<Vec<u8>> {
+    read_bounded_stream(reader, MAX_UNCOMPRESSED_ENTRY_SIZE as u64)
+}
+
+/// Safely reads from an entry stream up to `limit` bytes.
+///
+/// Returns an error if the decompressed stream exceeds the limit.
+pub fn read_bounded_stream<R: Read>(reader: &mut R, limit: u64) -> Result<Vec<u8>> {
+    let mut take = Read::take(reader, limit + 1);
+    let mut buf = Vec::new();
+    take.read_to_end(&mut buf)?;
+    if buf.len() as u64 > limit {
+        return Err(crate::error::ConverterError::Other(format!(
+            "Decompressed entry size exceeds maximum allowable limit of {limit} bytes (decompression bomb protection)"
+        )));
+    }
+    Ok(buf)
+}
+
 fn write_zip_entry<W: Write + Seek>(
     zip: &mut ZipWriter<W>,
     written_entries: &mut HashSet<String>,
@@ -110,6 +137,12 @@ fn write_zip_entry<W: Write + Seek>(
     path: &str,
     bytes: &[u8],
 ) -> Result<bool> {
+    if bytes.len() > MAX_UNCOMPRESSED_ENTRY_SIZE {
+        return Err(crate::error::ConverterError::Other(format!(
+            "Entry '{path}' size ({} bytes) exceeds maximum allowable limit of 64MB (decompression bomb protection)",
+            bytes.len()
+        )));
+    }
     if written_entries.insert(path.to_string()) {
         zip.start_file(path, options)?;
         zip.write_all(bytes)?;
@@ -183,8 +216,11 @@ pub fn build_rmod_package(
 
     let default_ns = &ir.metadata.id;
 
-    // 5. Write blockstate JSON files
-    for (key, bytes) in &assets.blockstates {
+    // 5. Write blockstate JSON files in deterministic alphabetical order
+    let mut blockstate_keys: Vec<_> = assets.blockstates.keys().collect();
+    blockstate_keys.sort();
+    for key in blockstate_keys {
+        let bytes = &assets.blockstates[key];
         let zip_path = if let Some((ns, subpath)) = key.split_once(':') {
             format!("assets/{ns}/blockstates/{subpath}.json")
         } else {
@@ -193,8 +229,11 @@ pub fn build_rmod_package(
         write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, bytes)?;
     }
 
-    // 6. Write model JSON files
-    for (key, bytes) in &assets.models {
+    // 6. Write model JSON files in deterministic alphabetical order
+    let mut model_keys: Vec<_> = assets.models.keys().collect();
+    model_keys.sort();
+    for key in model_keys {
+        let bytes = &assets.models[key];
         let zip_path = if let Some((ns, subpath)) = key.split_once(':') {
             format!("assets/{ns}/models/{subpath}.json")
         } else {
@@ -203,8 +242,11 @@ pub fn build_rmod_package(
         write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, bytes)?;
     }
 
-    // 7. Write texture PNG files
-    for (key, bytes) in &assets.textures {
+    // 7. Write texture PNG files in deterministic alphabetical order
+    let mut texture_keys: Vec<_> = assets.textures.keys().collect();
+    texture_keys.sort();
+    for key in texture_keys {
+        let bytes = &assets.textures[key];
         let zip_path = if let Some((ns, subpath)) = key.split_once(':') {
             format!("assets/{ns}/textures/{subpath}.png")
         } else {
@@ -213,8 +255,11 @@ pub fn build_rmod_package(
         write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, bytes)?;
     }
 
-    // 8. Write loot table JSON files
-    for (key, bytes) in &assets.loot_tables {
+    // 8. Write loot table JSON files in deterministic alphabetical order
+    let mut loot_keys: Vec<_> = assets.loot_tables.keys().collect();
+    loot_keys.sort();
+    for key in loot_keys {
+        let bytes = &assets.loot_tables[key];
         let zip_path = if let Some((ns, subpath)) = key.split_once(':') {
             format!("data/{ns}/loot_tables/{subpath}.json")
         } else {
@@ -223,8 +268,11 @@ pub fn build_rmod_package(
         write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, bytes)?;
     }
 
-    // 9. Write recipe files (first raw, then synthetic from IR)
-    for (key, bytes) in &assets.raw_recipes {
+    // 9. Write recipe files in deterministic order (first raw, then synthetic from IR)
+    let mut raw_recipe_keys: Vec<_> = assets.raw_recipes.keys().collect();
+    raw_recipe_keys.sort();
+    for key in raw_recipe_keys {
+        let bytes = &assets.raw_recipes[key];
         let zip_path = if let Some((ns, subpath)) = key.split_once(':') {
             format!("data/{ns}/recipes/{subpath}.json")
         } else {
@@ -233,7 +281,9 @@ pub fn build_rmod_package(
         write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, bytes)?;
     }
 
-    for recipe in &ir.recipes {
+    let mut sorted_recipes = ir.recipes.clone();
+    sorted_recipes.sort_by(|a, b| a.id().cmp(b.id()));
+    for recipe in &sorted_recipes {
         let key = recipe.id();
         let zip_path = if let Some((ns, subpath)) = key.split_once(':') {
             format!("data/{ns}/recipes/{subpath}.json")
@@ -246,8 +296,11 @@ pub fn build_rmod_package(
         }
     }
 
-    // 10. Write language files
-    for (path, bytes) in &assets.raw_lang_files {
+    // 10. Write language files in deterministic order
+    let mut lang_paths: Vec<_> = assets.raw_lang_files.keys().collect();
+    lang_paths.sort();
+    for path in lang_paths {
+        let bytes = &assets.raw_lang_files[path];
         write_zip_entry(&mut zip, &mut written_entries, options, path, bytes)?;
     }
 

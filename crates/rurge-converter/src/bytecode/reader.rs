@@ -1,5 +1,11 @@
 use crate::bytecode::constant_pool::{ConstantPool, ConstantPoolEntry};
 use crate::error::{ConverterError, Result};
+use std::io::Read;
+
+/// Maximum allowable decompressed size for a single classfile or bytecode buffer (64 MB).
+///
+/// Guards against decompression bombs (zip bombs) and out-of-memory denial-of-service.
+pub const MAX_CLASSFILE_SIZE: usize = 64 * 1024 * 1024;
 
 /// Attribute metadata attached to a class, field, or method.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,7 +80,17 @@ pub struct ClassFile {
 
 impl ClassFile {
     /// Parses a JVM classfile from a raw byte slice.
+    ///
+    /// Validates magic `0xCAFEBABE` and enforces `MAX_CLASSFILE_SIZE` (64 MB) limit
+    /// against decompression bombs and memory exhaustion attacks.
     pub fn parse(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() > MAX_CLASSFILE_SIZE {
+            return Err(ConverterError::Other(format!(
+                "Classfile size ({} bytes) exceeds maximum allowable limit of 64MB (decompression bomb protection)",
+                bytes.len()
+            )));
+        }
+
         let mut cursor = ByteCursor::new(bytes);
 
         // Header magic 0xCAFEBABE
@@ -341,7 +357,7 @@ impl ClassFile {
         let max_stack = u16::from_be_bytes([data[0], data[1]]);
         let max_locals = u16::from_be_bytes([data[2], data[3]]);
         let code_len = u32::from_be_bytes([data[4], data[5], data[6], data[7]]) as usize;
-        if code_len > data.len() - 8 {
+        if code_len > MAX_CLASSFILE_SIZE || code_len > data.len() - 8 {
             return None;
         }
         let bytecode = data[8..8 + code_len].to_vec();
@@ -683,6 +699,11 @@ impl<'a> ByteCursor<'a> {
     }
 
     fn read_bytes(&mut self, len: usize) -> Result<&'a [u8]> {
+        if len > MAX_CLASSFILE_SIZE {
+            return Err(ConverterError::Other(format!(
+                "Requested read length ({len} bytes) exceeds safety limit of 64MB"
+            )));
+        }
         if self.offset + len <= self.data.len() {
             let slice = &self.data[self.offset..self.offset + len];
             self.offset += len;
@@ -695,4 +716,26 @@ impl<'a> ByteCursor<'a> {
     fn read_vec(&mut self, len: usize) -> Result<Vec<u8>> {
         self.read_bytes(len).map(|s| s.to_vec())
     }
+}
+
+/// Safely reads decompressed bytes from an input stream up to `MAX_CLASSFILE_SIZE` (64 MB).
+///
+/// Prevents zip decompression bombs and out-of-memory denial of service.
+pub fn read_bounded_classfile<R: Read>(reader: &mut R) -> Result<Vec<u8>> {
+    read_bounded_stream(reader, MAX_CLASSFILE_SIZE as u64)
+}
+
+/// Reads bytes from a reader up to `limit` bytes.
+///
+/// Returns `ConverterError::Other` if the stream exceeds the limit.
+pub fn read_bounded_stream<R: Read>(reader: &mut R, limit: u64) -> Result<Vec<u8>> {
+    let mut take = Read::take(reader, limit + 1);
+    let mut buf = Vec::new();
+    take.read_to_end(&mut buf)?;
+    if buf.len() as u64 > limit {
+        return Err(ConverterError::Other(format!(
+            "Decompressed stream exceeds maximum size limit of {limit} bytes (decompression bomb protection)"
+        )));
+    }
+    Ok(buf)
 }

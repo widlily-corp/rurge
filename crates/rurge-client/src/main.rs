@@ -18,8 +18,16 @@ use winit::event::{ElementState, MouseButton as WinitMouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowAttributes, WindowId};
 
+struct GpuContext {
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+}
+
 struct RurgeApp {
     window: Option<Arc<Window>>,
+    gpu: Option<GpuContext>,
     governor: FrameGovernor,
     interpolator: RenderInterpolator,
     consumer: Consumer<RenderState>,
@@ -42,6 +50,54 @@ impl ApplicationHandler for RurgeApp {
                 Ok(w) => {
                     log::info!("Rurge primary render window created successfully.");
                     let window = Arc::new(w);
+
+                    // Initialize hardware-accelerated WGPU Graphics Context
+                    let instance = wgpu::Instance::default();
+                    match instance.create_surface(Arc::clone(&window)) {
+                        Ok(surface) => {
+                            let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                                power_preference: wgpu::PowerPreference::HighPerformance,
+                                compatible_surface: Some(&surface),
+                                force_fallback_adapter: false,
+                                ..Default::default()
+                            }));
+
+                            if let Ok(adapter) = adapter {
+                                let device_res = pollster::block_on(adapter.request_device(
+                                    &wgpu::DeviceDescriptor {
+                                        label: Some("Rurge Primary GPU Device"),
+                                        memory_hints: wgpu::MemoryHints::Performance,
+                                        ..Default::default()
+                                    },
+                                ));
+
+                                if let Ok((device, queue)) = device_res {
+                                    let size = window.inner_size();
+                                    let config = surface.get_default_config(
+                                        &adapter,
+                                        size.width.max(1),
+                                        size.height.max(1),
+                                    );
+
+                                    if let Some(mut config) = config {
+                                        config.present_mode = wgpu::PresentMode::AutoVsync;
+                                        surface.configure(&device, &config);
+                                        self.gpu = Some(GpuContext {
+                                            surface,
+                                            device,
+                                            queue,
+                                            config,
+                                        });
+                                        log::info!("WGPU GPU Context initialized successfully on primary window.");
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to create WGPU surface: {e}");
+                        }
+                    }
+
                     window.request_redraw();
                     self.window = Some(window);
                 }
@@ -57,6 +113,16 @@ impl ApplicationHandler for RurgeApp {
             WindowEvent::CloseRequested => {
                 log::info!("Shutdown requested by user. Exiting event loop.");
                 event_loop.exit();
+            }
+            WindowEvent::Resized(new_size) => {
+                if let Some(ref mut gpu) = self.gpu
+                    && new_size.width > 0
+                    && new_size.height > 0
+                {
+                    gpu.config.width = new_size.width;
+                    gpu.config.height = new_size.height;
+                    gpu.surface.configure(&gpu.device, &gpu.config);
+                }
             }
             WindowEvent::Focused(focused) => {
                 self.governor.set_focused(focused);
@@ -121,6 +187,45 @@ impl ApplicationHandler for RurgeApp {
                     self.interpolator.update(&mut self.consumer);
                     let _alpha = self.interpolator.compute_alpha(frame_start);
                     let _cam = self.interpolator.interpolated_camera_pos(_alpha);
+
+                    // Render hardware WGPU frame
+                    if let Some(ref gpu) = self.gpu {
+                        match gpu.surface.get_current_texture() {
+                            wgpu::CurrentSurfaceTexture::Success(output)
+                            | wgpu::CurrentSurfaceTexture::Suboptimal(output) => {
+                                let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+                                let mut encoder = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                                    label: Some("Rurge Render Encoder"),
+                                });
+                                {
+                                    let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                        label: Some("Rurge Clear & Viewport Pass"),
+                                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                            view: &view,
+                                            resolve_target: None,
+                                            depth_slice: None,
+                                            ops: wgpu::Operations {
+                                                load: wgpu::LoadOp::Clear(wgpu::Color {
+                                                    r: 0.08,
+                                                    g: 0.11,
+                                                    b: 0.16,
+                                                    a: 1.0,
+                                                }),
+                                                store: wgpu::StoreOp::Store,
+                                            },
+                                        })],
+                                        ..Default::default()
+                                    });
+                                }
+                                gpu.queue.submit(std::iter::once(encoder.finish()));
+                                gpu.queue.present(output);
+                            }
+                            wgpu::CurrentSurfaceTexture::Outdated => {
+                                gpu.surface.configure(&gpu.device, &gpu.config);
+                            }
+                            _ => {}
+                        }
+                    }
 
                     // Frame pacing: measure work duration, sleep only remaining time to reach target frame time
                     let min_dur = self.governor.min_frame_duration();
@@ -244,6 +349,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut app = RurgeApp {
         window: None,
+        gpu: None,
         governor: FrameGovernor::new(144),
         interpolator: RenderInterpolator::new(RenderState::default(), Duration::from_millis(50)),
         consumer,

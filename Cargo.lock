@@ -3582,6 +3582,7 @@ dependencies = [
  "horizon-world",
  "log",
  "num_cpus",
+ "pollster",
  "rayon",
  "rurge-api",
  "rurge-runtime",

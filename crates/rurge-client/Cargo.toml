@@ -18,6 +18,7 @@ num_cpus = "1.16"
 bumpalo = "3.16"
 winit = "0.30.13"
 wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "vulkan", "metal", "wgsl", "naga-ir"] }
+pollster = "0.4"
 log = "0.4"
 env_logger = "0.11"
 

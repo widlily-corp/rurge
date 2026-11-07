@@ -6,6 +6,7 @@ use rurge_installer::mojang_cdn::{
 use rurge_installer::parallel_dl::download_batch_parallel;
 use rurge_installer::unpacker::unpack_assets_from_jar_bytes;
 use std::env;
+use std::fs;
 use std::sync::Arc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -16,61 +17,74 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let target_dir = env::current_dir()?;
     let assets_dir = target_dir.join("assets");
 
-    // 1. Check if assets already exist
+    println!("[1/4] Fetching official version manifest from Mojang CDN...");
+    let resp = ureq::get(MANIFEST_URL).call()?;
+    let manifest: VersionManifest = resp.into_json()?;
+    let target_version = &manifest.latest.release;
+    println!("      Latest release version: {}", target_version);
+
+    let version_entry = manifest
+        .versions
+        .iter()
+        .find(|v| &v.id == target_version)
+        .ok_or_else(|| format!("Target version {} not found in manifest", target_version))?;
+
+    println!("[2/4] Fetching version package metadata...");
+    let pkg_resp = ureq::get(&version_entry.url).call()?;
+    let pkg: VersionPackage = pkg_resp.into_json()?;
+
+    // 1. Unpack JAR assets (textures, models, lang) if not present
     if assets_dir.join("minecraft").exists() {
-        println!("[1/4] Assets already present in {}", assets_dir.display());
-    } else {
-        println!("[1/4] Fetching official version manifest from Mojang CDN...");
-        let resp = ureq::get(MANIFEST_URL).call()?;
-        let manifest: VersionManifest = resp.into_json()?;
-        let target_version = &manifest.latest.release;
-        println!("      Latest release version: {}", target_version);
-
-        let version_entry = manifest
-            .versions
-            .iter()
-            .find(|v| &v.id == target_version)
-            .ok_or_else(|| format!("Target version {} not found in manifest", target_version))?;
-
-        println!("[2/4] Fetching version package metadata...");
-        let pkg_resp = ureq::get(&version_entry.url).call()?;
-        let pkg: VersionPackage = pkg_resp.into_json()?;
-
         println!(
-            "      Downloading client.jar ({} bytes, sha1: {})...",
+            "[3/4] Client JAR assets already extracted in {}",
+            assets_dir.join("minecraft").display()
+        );
+    } else {
+        println!(
+            "[3/4] Downloading client.jar ({} bytes, sha1: {})...",
             pkg.downloads.client.size,
             &pkg.downloads.client.sha1[..8]
         );
         let jar_bytes = download_file_verified(&pkg.downloads.client.url, &pkg.downloads.client.sha1)?;
-
-        println!("[3/4] Unpacking textures, models, and lang files into {}...", assets_dir.display());
+        println!("      Unpacking textures, models, and lang files into {}...", assets_dir.display());
         let count = unpack_assets_from_jar_bytes(&jar_bytes, &assets_dir)?;
         println!("      Extracted {} asset files successfully.", count);
+    }
 
-        // 2. Fetch asset index for sounds, music, and font objects and download via Rayon
-        println!("[4/4] Fetching asset index and synchronizing sound/font assets in parallel...");
-        match download_file_verified(&pkg.asset_index.url, &pkg.asset_index.sha1) {
-            Ok(index_bytes) => {
-                if let Ok(asset_index) = serde_json::from_slice::<AssetIndex>(&index_bytes) {
-                    let jobs = build_asset_download_jobs(&asset_index, &assets_dir);
-                    println!("      Found {} asset objects to synchronize in parallel.", jobs.len());
-                    let stats = download_batch_parallel(
-                        &jobs,
-                        3,
-                        Some(Arc::new(|done, total| {
-                            if done % 200 == 0 || done == total {
-                                println!("      Progress: [{done}/{total}] assets verified/downloaded...");
-                            }
-                        })),
-                    );
-                    match stats {
-                        Ok(s) => println!("      Synchronized {} assets ({:.2} MB) in parallel.", s.completed_files, s.total_bytes as f64 / (1024.0 * 1024.0)),
-                        Err(e) => println!("      Asset synchronization warning: {e}"),
-                    }
-                }
-            }
-            Err(e) => println!("      Failed to download asset index: {e}"),
+    // 2. Fetch asset index for sounds, music, and font objects and stream in parallel
+    println!("[4/4] Synchronizing sound/font assets in parallel via Rayon...");
+    let index_file = assets_dir.join("indexes").join(format!("{}.json", pkg.asset_index.id));
+    let index_bytes = if index_file.exists() {
+        fs::read(&index_file)?
+    } else {
+        println!("      Downloading asset index: {}...", pkg.asset_index.url);
+        let bytes = download_file_verified(&pkg.asset_index.url, &pkg.asset_index.sha1)?;
+        if let Some(parent) = index_file.parent() {
+            fs::create_dir_all(parent)?;
         }
+        fs::write(&index_file, &bytes)?;
+        bytes
+    };
+
+    let asset_index: AssetIndex = serde_json::from_slice(&index_bytes)?;
+    let jobs = build_asset_download_jobs(&asset_index, &assets_dir);
+    println!("      Found {} asset objects to verify/synchronize in parallel.", jobs.len());
+    let stats = download_batch_parallel(
+        &jobs,
+        5,
+        Some(Arc::new(|done, total| {
+            if done % 500 == 0 || done == total {
+                println!("      Progress: [{done}/{total}] assets verified/synchronized...");
+            }
+        })),
+    );
+    match stats {
+        Ok(s) => println!(
+            "      Synchronized all {} assets ({:.2} MB) successfully.",
+            s.completed_files,
+            s.total_bytes as f64 / (1024.0 * 1024.0)
+        ),
+        Err(e) => println!("      Asset synchronization notice: {e}"),
     }
 
     // 3. Deploy default graphics configs and folders

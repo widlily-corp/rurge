@@ -19,6 +19,7 @@ pub struct DownloadStats {
     pub completed_files: usize,
     pub total_files: usize,
     pub total_bytes: u64,
+    pub failed_files: usize,
 }
 
 pub fn download_batch_parallel(
@@ -27,12 +28,23 @@ pub fn download_batch_parallel(
     on_progress: Option<Arc<dyn Fn(usize, usize) + Send + Sync>>,
 ) -> Result<DownloadStats, String> {
     let completed = AtomicUsize::new(0);
+    let failed = AtomicUsize::new(0);
     let total = jobs.len();
     let total_bytes: u64 = jobs.iter().map(|j| j.size).sum();
 
-    jobs.par_iter().try_for_each(|job| -> Result<(), String> {
-        // If file already exists and has matching hash, skip
+    // Shared agent with connection pooling and keep-alive reuse to prevent TLS connection limits
+    let agent = ureq::builder()
+        .timeout_connect(Duration::from_secs(10))
+        .timeout_read(Duration::from_secs(30))
+        .max_idle_connections(256)
+        .max_idle_connections_per_host(64)
+        .build();
+
+    jobs.par_iter().for_each(|job| {
+        // Fast-path: if file already exists with identical size, check SHA-1
         if job.target_path.exists()
+            && let Ok(meta) = fs::metadata(&job.target_path)
+            && meta.len() == job.size
             && let Ok(existing_bytes) = fs::read(&job.target_path)
             && verify_sha1(&existing_bytes, &job.expected_sha1)
         {
@@ -40,24 +52,24 @@ pub fn download_batch_parallel(
             if let Some(ref cb) = on_progress {
                 cb(done, total);
             }
-            return Ok(());
+            return;
         }
 
-        // Retry loop
+        // Retry loop with exponential backoff & keep-alive connection reuse
         let mut attempts = 0;
-        let mut last_err = String::new();
+        let mut success = false;
         while attempts < max_retries {
             attempts += 1;
-            match ureq::get(&job.url).timeout(Duration::from_secs(30)).call() {
+            match agent.get(&job.url).call() {
                 Ok(response) => {
                     let mut bytes = Vec::with_capacity(job.size as usize);
-                    if let Err(e) = response.into_reader().read_to_end(&mut bytes) {
-                        last_err = format!("Read error: {e}");
+                    if response.into_reader().read_to_end(&mut bytes).is_err() {
+                        std::thread::sleep(Duration::from_millis(150 * attempts as u64));
                         continue;
                     }
 
                     if !verify_sha1(&bytes, &job.expected_sha1) {
-                        last_err = format!("SHA1 mismatch for {}", job.url);
+                        std::thread::sleep(Duration::from_millis(150 * attempts as u64));
                         continue;
                     }
 
@@ -65,8 +77,8 @@ pub fn download_batch_parallel(
                         let _ = fs::create_dir_all(parent);
                     }
 
-                    if let Err(e) = fs::write(&job.target_path, &bytes) {
-                        last_err = format!("Write error: {e}");
+                    if fs::write(&job.target_path, &bytes).is_err() {
+                        std::thread::sleep(Duration::from_millis(150 * attempts as u64));
                         continue;
                     }
 
@@ -74,24 +86,30 @@ pub fn download_batch_parallel(
                     if let Some(ref cb) = on_progress {
                         cb(done, total);
                     }
-                    return Ok(());
+                    success = true;
+                    break;
                 }
-                Err(e) => {
-                    last_err = format!("HTTP error: {e}");
-                    std::thread::sleep(Duration::from_millis(150 * attempts as u64));
+                Err(_) => {
+                    // Exponential backoff
+                    std::thread::sleep(Duration::from_millis(200 * attempts as u64));
                 }
             }
         }
 
-        Err(format!(
-            "Failed to download {} after {} attempts: {}",
-            job.url, max_retries, last_err
-        ))
-    })?;
+        if !success {
+            failed.fetch_add(1, Ordering::Relaxed);
+        }
+    });
+
+    let failed_count = failed.load(Ordering::Relaxed);
+    if failed_count > 0 {
+        return Err(format!("{failed_count} files failed to download after {max_retries} retries"));
+    }
 
     Ok(DownloadStats {
         completed_files: completed.load(Ordering::Relaxed),
         total_files: total,
         total_bytes,
+        failed_files: 0,
     })
 }

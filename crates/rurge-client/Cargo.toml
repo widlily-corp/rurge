@@ -1,0 +1,22 @@
+[package]
+name = "rurge-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rurge-api = { path = "../rurge-api" }
+rurge-runtime = { path = "../rurge-runtime" }
+horizon-world = { path = "../../../horizon/crates/horizon-world" }
+horizon-client-render = { path = "../../../horizon/crates/horizon-client-render" }
+horizon-protocol = { path = "../../../horizon/crates/horizon-protocol" }
+horizon-threads = { path = "../../../horizon/crates/horizon-threads" }
+rayon = "1.10"
+crossbeam = "0.8"
+sysinfo = "0.33"
+num_cpus = "1.16"
+bumpalo = "3.16"
+winit = "0.30.13"
+wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "vulkan", "metal", "wgsl", "naga-ir"] }
+log = "0.4"
+env_logger = "0.11"

@@ -25,6 +25,8 @@ While Horizon's built-in modding API uses a restricted WebAssembly sandbox (64 M
 rurge/
 ├── Cargo.toml
 ├── crates/
+│   ├── rurge-client/    # Standalone multi-core voxel client (Winit 0.30, 144+ FPS, 0 ms camera LERP)
+│   ├── rurge-installer/ # One-click Mojang CDN asset downloader, Rayon streaming, ZipSlip-safe unpacker
 │   ├── rurge-api/       # Stable C-ABI plugin contract (abi_stable traits, events, metadata)
 │   ├── rurge-core/      # Prioritized EventBus, Registries, rurge.toml manifest, SemVer DAG
 │   ├── rurge-blamer/    # Panic boundary isolation, stack tracing, and crash report generator
@@ -38,6 +40,24 @@ rurge/
 │   └── shader-hud-mod/  # Real example native mod responding to shaderpack events & render hooks
 └── tests/
     └── integration_e2e_test.rs # End-to-end integration test suite
+```
+
+---
+
+## 🎮 Running the Standalone Client & Installer
+
+### 1. Download & Unpack Official Assets (One-Click)
+Run `rurge-installer` to fetch official Minecraft Java assets directly from Mojang CDN, verify SHA-1 hashes on-the-fly, stream sound assets via Rayon, unpack textures/models safely into `./assets/`, and deploy default graphics presets (`options.txt`, `shaderpacks/`):
+
+```bash
+cargo run -p rurge-installer
+```
+
+### 2. Launch Standalone Multi-Core Client
+Launch `rurge-client` with hardware CPU core budgeting (reserving physical cores for OS/Discord), focus governor (144 FPS active, 30 FPS unfocused, 10 FPS with GPU present disabled on minimize), lock-free zero-alloc triple buffering, and panic-isolated mod runtime:
+
+```bash
+cargo run -p rurge-client
 ```
 
 ---

@@ -2,6 +2,7 @@
 
 pub mod governor;
 pub mod hardware;
+pub mod memory;
 pub mod sync;
 
 pub fn version() -> &'static str {

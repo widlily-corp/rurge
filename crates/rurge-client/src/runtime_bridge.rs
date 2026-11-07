@@ -36,3 +36,9 @@ impl RuntimeBridge {
         self.engine.shutdown();
     }
 }
+
+impl Drop for RuntimeBridge {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}

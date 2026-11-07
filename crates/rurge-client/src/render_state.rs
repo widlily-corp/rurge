@@ -30,6 +30,19 @@ impl Default for RenderState {
     }
 }
 
+impl RenderState {
+    /// Copies state from `other` in-place, reusing the pre-allocated capacity of `entities`
+    /// without heap allocation.
+    pub fn copy_from(&mut self, other: &RenderState) {
+        self.tick_id = other.tick_id;
+        self.tick_timestamp = other.tick_timestamp;
+        self.camera_prev_pos = other.camera_prev_pos;
+        self.camera_curr_pos = other.camera_curr_pos;
+        self.entities.clear();
+        self.entities.extend_from_slice(&other.entities);
+    }
+}
+
 pub fn interpolate_pos(prev: [f64; 3], curr: [f64; 3], alpha: f64) -> [f64; 3] {
     let a = alpha.clamp(0.0, 1.0);
     [

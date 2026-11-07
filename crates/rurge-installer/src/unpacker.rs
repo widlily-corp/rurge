@@ -18,10 +18,19 @@ pub fn unpack_assets_from_jar_bytes(jar_bytes: &[u8], target_assets_dir: &Path) 
         let mut file = archive.by_index(i)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Failed to read zip index {i}: {e}")))?;
 
-        let name = file.name().to_string();
+        let enclosed = match file.enclosed_name() {
+            Some(path) => path.to_owned(),
+            None => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Path traversal / invalid zip entry detected: {}", file.name()),
+                ));
+            }
+        };
+
         // Only extract items inside "assets/"
-        if let Some(rel_path) = name.strip_prefix("assets/") {
-            if rel_path.is_empty() {
+        if let Ok(rel_path) = enclosed.strip_prefix("assets") {
+            if rel_path.as_os_str().is_empty() {
                 continue;
             }
             let out_path = target_assets_dir.join(rel_path);

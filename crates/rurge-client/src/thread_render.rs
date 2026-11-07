@@ -17,7 +17,7 @@ impl RenderInterpolator {
 
     pub fn update(&mut self, consumer: &mut Consumer<RenderState>) {
         if let Some(new_state) = consumer.read() {
-            self.current_state = new_state.clone();
+            self.current_state.copy_from(new_state);
         }
     }
 

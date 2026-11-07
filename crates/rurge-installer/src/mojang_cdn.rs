@@ -60,6 +60,40 @@ pub struct DownloadEntry {
     pub url: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AssetIndex {
+    pub objects: std::collections::HashMap<String, AssetObject>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AssetObject {
+    pub hash: String,
+    pub size: u64,
+}
+
+/// Builds parallel download jobs for all assets indexed in `AssetIndex`.
+pub fn build_asset_download_jobs(
+    index: &AssetIndex,
+    assets_dir: &std::path::Path,
+) -> Vec<crate::parallel_dl::DownloadJob> {
+    let objects_dir = assets_dir.join("objects");
+    let mut jobs = Vec::with_capacity(index.objects.len());
+    for obj in index.objects.values() {
+        if obj.hash.len() >= 2 {
+            let prefix = &obj.hash[..2];
+            let target_path = objects_dir.join(prefix).join(&obj.hash);
+            let url = format!("{RESOURCES_URL}/{prefix}/{}", obj.hash);
+            jobs.push(crate::parallel_dl::DownloadJob {
+                url,
+                target_path,
+                expected_sha1: obj.hash.clone(),
+                size: obj.size,
+            });
+        }
+    }
+    jobs
+}
+
 pub fn download_file_verified(url: &str, expected_sha1: &str) -> Result<Vec<u8>, String> {
     let resp = ureq::get(url)
         .call()

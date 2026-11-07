@@ -32,16 +32,15 @@ pub fn download_batch_parallel(
 
     jobs.par_iter().try_for_each(|job| -> Result<(), String> {
         // If file already exists and has matching hash, skip
-        if job.target_path.exists() {
-            if let Ok(existing_bytes) = fs::read(&job.target_path) {
-                if verify_sha1(&existing_bytes, &job.expected_sha1) {
-                    let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
-                    if let Some(ref cb) = on_progress {
-                        cb(done, total);
-                    }
-                    return Ok(());
-                }
+        if job.target_path.exists()
+            && let Ok(existing_bytes) = fs::read(&job.target_path)
+            && verify_sha1(&existing_bytes, &job.expected_sha1)
+        {
+            let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
+            if let Some(ref cb) = on_progress {
+                cb(done, total);
             }
+            return Ok(());
         }
 
         // Retry loop

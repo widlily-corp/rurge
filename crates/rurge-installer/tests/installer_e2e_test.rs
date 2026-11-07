@@ -59,3 +59,24 @@ fn test_deployer_creates_compatible_options_and_dirs() {
     let mods_dir = temp_dir.path().join("mods");
     assert!(mods_dir.is_dir());
 }
+
+#[test]
+fn test_unpacker_rejects_zip_slip() {
+    let temp_dir = tempfile::tempdir().expect("Failed to create tempdir");
+    let target_assets = temp_dir.path().join("assets");
+
+    let mut zip_buf = Vec::new();
+    {
+        let mut writer = ZipWriter::new(std::io::Cursor::new(&mut zip_buf));
+        let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+
+        // Path traversal payload
+        writer.start_file("assets/../../evil.txt", options).unwrap();
+        writer.write_all(b"malicious content").unwrap();
+
+        writer.finish().unwrap();
+    }
+
+    let result = unpack_assets_from_jar_bytes(&zip_buf, &target_assets);
+    assert!(result.is_err(), "Expected unpacker to reject Zip Slip path traversal");
+}

@@ -44,3 +44,31 @@ fn test_decoupled_tick_and_render_pipeline() {
 
     tick_handle.stop();
 }
+
+#[test]
+fn test_render_state_copy_from_reuses_capacity() {
+    use rurge_client::render_state::EntityTransform;
+
+    let mut state_dest = RenderState::default();
+    let initial_cap = state_dest.entities.capacity();
+    assert!(initial_cap >= 256);
+
+    let mut state_src = RenderState::default();
+    state_src.tick_id = 100;
+    state_src.camera_curr_pos = [1.0, 2.0, 3.0];
+    state_src.entities.push(EntityTransform {
+        id: 42,
+        prev_pos: [0.0; 3],
+        curr_pos: [1.0, 1.0, 1.0],
+        yaw: 90.0,
+        pitch: 0.0,
+    });
+
+    state_dest.copy_from(&state_src);
+    assert_eq!(state_dest.tick_id, 100);
+    assert_eq!(state_dest.camera_curr_pos, [1.0, 2.0, 3.0]);
+    assert_eq!(state_dest.entities.len(), 1);
+    assert_eq!(state_dest.entities[0].id, 42);
+    // Capacity must NOT shrink or reallocate
+    assert_eq!(state_dest.entities.capacity(), initial_cap);
+}

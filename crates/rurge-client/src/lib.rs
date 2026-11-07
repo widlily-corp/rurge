@@ -3,6 +3,7 @@
 pub mod governor;
 pub mod hardware;
 pub mod memory;
+pub mod mesh_pipeline;
 pub mod render_state;
 pub mod sync;
 pub mod thread_render;

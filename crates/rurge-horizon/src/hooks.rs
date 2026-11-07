@@ -153,6 +153,8 @@ impl RurgeHorizonHooks {
         } else {
             Some(new_val.to_string())
         };
+        // Live override in Horizon shader runtime
+        horizon_shaders::set_live_shader_pack(new_val);
         self.check_and_dispatch_shader_transition(new_opt);
     }
 
@@ -324,6 +326,10 @@ impl Hooks for RurgeHorizonHooks {
 
     fn blocks(&self, event: &mut BlocksEvent<'_>) {
         for block in self.engine.content().all_blocks() {
+            let ns = block.id.split_once(':').map_or(block.id.as_str(), |(n, _)| n);
+            if is_hmod_installed(ns) {
+                continue;
+            }
             if !event.blocks.iter().any(|b| b.id == block.id) {
                 event.blocks.push(HorizonBlock {
                     id: block.id.clone(),
@@ -337,6 +343,10 @@ impl Hooks for RurgeHorizonHooks {
 
     fn items(&self, event: &mut ItemsEvent<'_>) {
         for item in self.engine.content().all_items() {
+            let ns = item.id.split_once(':').map_or(item.id.as_str(), |(n, _)| n);
+            if is_hmod_installed(ns) {
+                continue;
+            }
             if !event.items.iter().any(|i| i.id == item.id) {
                 event.items.push(HorizonItem {
                     id: item.id.clone(),
@@ -390,7 +400,7 @@ impl Hooks for RurgeHorizonHooks {
             self.toggle_default_shaderpack();
             let active = self.current_shader().unwrap_or_else(|| "Vanilla (Off)".to_string());
             host.broadcast(Text::literal(format!(
-                "§6[Rurge]§r Shader set to: §e{active}§r (Active on reload. For live toggle: §bOptions > Video Settings > Shader Packs§r)"
+                "§6[Rurge]§r Live Shader switched to: §e{active}§r"
             )));
         }
     }
@@ -534,3 +544,21 @@ impl RenderHooks for RurgeHorizonHooks {
         }
     }
 }
+
+fn is_hmod_installed(ns: &str) -> bool {
+    let hmod_dir = Path::new("horizon-mods");
+    if let Ok(entries) = std::fs::read_dir(hmod_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && path.extension().is_some_and(|e| e == "hmod") {
+                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                    if name == ns || name.starts_with(&format!("{ns}-")) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+

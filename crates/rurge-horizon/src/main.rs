@@ -32,6 +32,12 @@ fn main() {
     // 3. Ensure default shaderpack and compatible graphics API (Auto/Vulkan) are configured
     // across both horizon-graphics.txt and options.txt (preventing OpenGL Naga depth blit crashes).
     ensure_compatible_graphics_config();
+    let best_sp = if Path::new("shaderpacks/ComplementaryReimagined_r5.9.3.zip").exists() {
+        "ComplementaryReimagined_r5.9.3.zip"
+    } else {
+        "test-classic-shader.zip"
+    };
+    horizon_shaders::set_live_shader_pack(best_sp);
 
     // 4. Auto-convert any dropped Minecraft Java .jar files in "mods" and "horizon-mods" to .rmod packages.
     let mut converted_jars = convert_dropped_jars_in(mods_dir);
@@ -186,6 +192,14 @@ fn ensure_compatible_graphics_config() {
         for line in &mut opt_lines {
             if line.starts_with("preferredGraphicsBackend:") && line.contains("opengl") {
                 *line = "preferredGraphicsBackend:\"default\"".to_string();
+                opt_modified = true;
+            }
+            if line.starts_with("exclusiveFullscreen:") && line.contains("true") {
+                *line = "exclusiveFullscreen:false".to_string();
+                opt_modified = true;
+            }
+            if line.starts_with("fullscreen:") && line.contains("true") {
+                *line = "fullscreen:false".to_string();
                 opt_modified = true;
             }
         }

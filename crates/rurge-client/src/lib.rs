@@ -1,5 +1,6 @@
 //! Core engine library for the standalone multi-core Rurge client.
 
+pub mod governor;
 pub mod hardware;
 
 pub fn version() -> &'static str {

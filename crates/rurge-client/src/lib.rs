@@ -7,6 +7,7 @@ pub mod mesh_pipeline;
 pub mod render_state;
 pub mod runtime_bridge;
 pub mod simulation;
+pub mod sound_linker;
 pub mod sync;
 pub mod thread_render;
 pub mod thread_tick;

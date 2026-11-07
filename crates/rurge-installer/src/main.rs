@@ -1,3 +1,4 @@
+use rurge_installer::asset_linker::link_sound_assets;
 use rurge_installer::deployer::deploy_default_configs;
 use rurge_installer::mojang_cdn::{
     build_asset_download_jobs, download_file_verified, AssetIndex, VersionManifest, VersionPackage,
@@ -87,7 +88,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => println!("      Asset synchronization notice: {e}"),
     }
 
-    // 3. Deploy default graphics configs and folders
+    // 3. Reconstruct virtual sound index tree into assets/ and .horizon-cache/
+    println!("Reconstructing virtual sound asset hierarchy...");
+    let horizon_cache = target_dir.join(".horizon-cache").join("mod-content");
+    match link_sound_assets(&assets_dir, &[&target_dir, &horizon_cache]) {
+        Ok(count) => println!("      Linked {count} virtual sound assets for zero-warning audio parity."),
+        Err(e) => println!("      Sound asset linking notice: {e}"),
+    }
+
+    // 4. Deploy default graphics configs and folders
     println!("Deploying default graphics configuration and shaderpacks...");
     deploy_default_configs(&target_dir)?;
 

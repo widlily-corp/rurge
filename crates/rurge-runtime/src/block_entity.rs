@@ -135,6 +135,8 @@ pub struct BlockEntityManager {
     factories: RwLock<HashMap<String, BlockEntityFactory>>,
 }
 
+type BlockEntityCandidate = (BlockPos, String, Arc<Mutex<Box<dyn BlockEntity>>>);
+
 impl BlockEntityManager {
     /// Creates a new empty `BlockEntityManager`.
     pub fn new() -> Self {
@@ -250,7 +252,7 @@ impl BlockEntityManager {
     /// any panics to the respective mod without crashing the game loop.
     pub fn tick_all(&self, tick_count: u64, blamer: &Blamer) {
         // 1. Take a snapshot of candidate entities to tick without holding the map lock.
-        let snapshot: Vec<(BlockPos, String, Arc<Mutex<Box<dyn BlockEntity>>>)> = {
+        let snapshot: Vec<BlockEntityCandidate> = {
             let tiles = self.tiles.read();
             tiles
                 .iter()
@@ -405,8 +407,8 @@ impl BlockEntityManager {
         }
 
         // Otherwise, attempt reconstruction via registered factory
-        if let Some(type_id) = nbt.get_string("type_id") {
-            if let Some(mut entity) = self.create_entity(type_id) {
+        if let Some(mut entity) = nbt.get_string("type_id").and_then(|id| self.create_entity(id)) {
+
                 entity.read_nbt(nbt);
                 let mod_id = nbt
                     .get_string("mod_id")
@@ -414,7 +416,6 @@ impl BlockEntityManager {
                     .to_string();
                 self.register_boxed(mod_id, pos, entity);
                 return true;
-            }
         }
 
         false
@@ -428,9 +429,7 @@ impl BlockEntityManager {
         if let Some(list) = root.get_list("block_entities") {
             for tag in list {
                 if let NbtTag::Compound(compound) = tag {
-                    if self.load_entity_from_nbt(compound) {
-                        loaded += 1;
-                    }
+                    loaded += usize::from(self.load_entity_from_nbt(compound));
                 }
             }
         }
@@ -453,10 +452,8 @@ impl BlockEntityManager {
         &self,
         root: &RuntimeNbtCompound,
     ) -> Result<usize, PersistenceError> {
-        if let Some(json_val) = root.get(BLOCK_ENTITIES_NBT_KEY) {
-            if let NbtTag::Compound(api_root) = json_to_nbt_tag(json_val) {
-                return Ok(self.load_all_from_nbt(&api_root));
-            }
+        if let Some(NbtTag::Compound(api_root)) = root.get(BLOCK_ENTITIES_NBT_KEY).map(json_to_nbt_tag) {
+            return Ok(self.load_all_from_nbt(&api_root));
         }
         Ok(0)
     }

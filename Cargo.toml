@@ -19,6 +19,7 @@ members = [
     "crates/cargo-rurge",
     "crates/rurge-horizon",
     "crates/rurge-client",
+    "crates/rurge-installer",
     "examples/simple-hud-mod",
     "examples/shader-hud-mod",
 ]

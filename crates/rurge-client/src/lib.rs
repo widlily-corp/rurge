@@ -2,6 +2,7 @@
 
 pub mod governor;
 pub mod hardware;
+pub mod sync;
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")

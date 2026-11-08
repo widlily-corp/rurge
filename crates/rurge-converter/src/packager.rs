@@ -410,6 +410,72 @@ pub fn build_rmod_package(
         write_zip_entry(&mut zip, &mut written_entries, options, &tab_path, &tab_bytes)?;
     }
 
+    // 12. Write 1.21.4+ client item definitions (assets/<ns>/items/<name>.json)
+    // Minecraft 1.21.4+ and Horizon/Rurge decouple item rendering from legacy raw JSON item models
+    // into client item definition trees in assets/<ns>/items/*.json.
+    let mut all_item_keys = Vec::new();
+    for b in &ir.blocks {
+        let (ns, subpath) = if let Some((ns, sub)) = b.id.split_once(':') {
+            (ns, sub)
+        } else {
+            (default_ns.as_str(), b.id.as_str())
+        };
+        all_item_keys.push((ns.to_string(), subpath.to_string(), true));
+    }
+    for i in &ir.items {
+        let (ns, subpath) = if let Some((ns, sub)) = i.id.split_once(':') {
+            (ns, sub)
+        } else {
+            (default_ns.as_str(), i.id.as_str())
+        };
+        if !all_item_keys.iter().any(|(n, s, _)| n == ns && s == subpath) {
+            all_item_keys.push((ns.to_string(), subpath.to_string(), false));
+        }
+    }
+
+    // Also pick up any model files in assets.models that represent items
+    for key in assets.models.keys() {
+        let (ns, rel) = if let Some((ns, sub)) = key.split_once(':') {
+            (ns, sub)
+        } else {
+            (default_ns.as_str(), key.as_str())
+        };
+        if let Some(subpath) = rel.strip_prefix("item/") {
+            if !all_item_keys.iter().any(|(n, s, _)| n == ns && s == subpath) {
+                all_item_keys.push((ns.to_string(), subpath.to_string(), false));
+            }
+        }
+    }
+
+    all_item_keys.sort();
+    for (ns, subpath, is_block) in all_item_keys {
+        let def_zip_path = format!("assets/{ns}/items/{subpath}.json");
+        if !written_entries.contains(&def_zip_path) {
+            let has_item_model = assets.models.contains_key(&format!("{ns}:item/{subpath}"))
+                || assets.models.contains_key(&format!("item/{subpath}"));
+            let has_block_model = assets.models.contains_key(&format!("{ns}:block/{subpath}"))
+                || assets.models.contains_key(&format!("block/{subpath}"));
+
+            let model_target = if has_item_model {
+                format!("{ns}:item/{subpath}")
+            } else if has_block_model || is_block {
+                format!("{ns}:block/{subpath}")
+            } else {
+                format!("{ns}:item/{subpath}")
+            };
+
+            let client_item_json = serde_json::json!({
+                "model": {
+                    "type": "minecraft:model",
+                    "model": model_target,
+                }
+            });
+            if let Ok(def_bytes) = serde_json::to_vec_pretty(&client_item_json) {
+                write_zip_entry(&mut zip, &mut written_entries, options, &def_zip_path, &def_bytes)?;
+            }
+        }
+    }
+
     zip.finish()?;
     // 12. Also ensure a twin .hmod package is created if saving to a .rmod path
     if output_path.extension().and_then(|e| e.to_str()) == Some("rmod") {

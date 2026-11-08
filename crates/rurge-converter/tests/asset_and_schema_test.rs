@@ -591,3 +591,78 @@ fn test_compatibility_auditor_bytecode_mixin_and_asm_detection() {
         .iter()
         .any(|w| w.contains("ticking BlockEntity")));
 }
+
+#[test]
+fn test_packager_writes_1_21_4_client_item_definitions() {
+    use rurge_converter::packager::build_rmod_package;
+    use rurge_converter::ExtractedAssets;
+    use std::io::Read;
+
+    let mut ir = ContentIR::new(ModMetadata {
+        id: "testmod".into(),
+        name: "Test Mod".into(),
+        version: "1.0.0".into(),
+        authors: vec!["Author".into()],
+        description: "Test".into(),
+        loader: ModLoader::Fabric,
+    });
+    ir.add_block(BlockDef::new("ruby_block"));
+    ir.add_item(ItemDef::new("ruby_wand"));
+
+    let mut assets = ExtractedAssets::default();
+    assets.models.insert(
+        "testmod:item/ruby_wand".to_string(),
+        br#"{"parent":"item/generated"}"#.to_vec(),
+    );
+    assets.models.insert(
+        "testmod:block/ruby_block".to_string(),
+        br#"{"parent":"block/cube_all"}"#.to_vec(),
+    );
+
+    let compat = audit_compatibility(ModLoader::Fabric, &[], &[], &ir);
+    let tmp_dir = tempfile::tempdir().unwrap();
+    let rmod_path = tmp_dir.path().join("testmod-1.0.0.rmod");
+
+    build_rmod_package(&ir, &assets, &compat, &rmod_path).expect("Packaging must succeed");
+
+    let file = std::fs::File::open(&rmod_path).unwrap();
+    let mut zip = zip::ZipArchive::new(file).unwrap();
+
+    // Verify 1.21.4+ client item definition for block item
+    {
+        let mut block_def_file = zip
+            .by_name("assets/testmod/items/ruby_block.json")
+            .expect("ruby_block.json must be packaged in assets/testmod/items/");
+        let mut block_json = String::new();
+        block_def_file.read_to_string(&mut block_json).unwrap();
+        assert!(
+            block_json.contains("testmod:block/ruby_block"),
+            "Block item definition should target testmod:block/ruby_block: {block_json}"
+        );
+    }
+
+    // Verify 1.21.4+ client item definition for item
+    {
+        let mut item_def_file = zip
+            .by_name("assets/testmod/items/ruby_wand.json")
+            .expect("ruby_wand.json must be packaged in assets/testmod/items/");
+        let mut item_json = String::new();
+        item_def_file.read_to_string(&mut item_json).unwrap();
+        assert!(
+            item_json.contains("testmod:item/ruby_wand"),
+            "Item definition should target testmod:item/ruby_wand: {item_json}"
+        );
+    }
+
+    // Verify creative tab exists and has both items
+    {
+        let mut tab_file = zip
+            .by_name("data/testmod/horizon/creative_tab/testmod.json")
+            .expect("creative_tab must exist");
+        let mut tab_json = String::new();
+        tab_file.read_to_string(&mut tab_json).unwrap();
+        assert!(tab_json.contains("testmod:ruby_block"));
+        assert!(tab_json.contains("testmod:ruby_wand"));
+    }
+}
+

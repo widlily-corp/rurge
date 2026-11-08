@@ -22,6 +22,8 @@ pub struct ExtractedAssets {
     pub models: HashMap<String, Vec<u8>>,
     /// Normalized texture images: identifier (e.g. `modid:block/texture_name`) -> PNG bytes.
     pub textures: HashMap<String, Vec<u8>>,
+    /// Normalized texture animation metadata: identifier (e.g. `modid:item/item_name`) -> JSON/mcmeta bytes.
+    pub texture_mcmeta: HashMap<String, Vec<u8>>,
     /// Localized translations from JSON and legacy .lang files.
     pub lang: HashMap<String, String>,
     /// Parsed standard Minecraft recipes.
@@ -427,6 +429,9 @@ pub fn extract_assets_from_zip<R: Read + Seek>(
         let is_texture = normalized_path.starts_with("assets/")
             && normalized_path.contains("/textures/")
             && normalized_path.ends_with(".png");
+        let is_mcmeta = normalized_path.starts_with("assets/")
+            && normalized_path.contains("/textures/")
+            && normalized_path.ends_with(".png.mcmeta");
         let is_lang_json = normalized_path.starts_with("assets/")
             && normalized_path.contains("/lang/")
             && normalized_path.ends_with(".json");
@@ -444,6 +449,7 @@ pub fn extract_assets_from_zip<R: Read + Seek>(
         if !is_blockstate
             && !is_model
             && !is_texture
+            && !is_mcmeta
             && !is_lang_json
             && !is_lang_legacy
             && !is_recipe
@@ -485,6 +491,10 @@ pub fn extract_assets_from_zip<R: Read + Seek>(
         } else if is_texture {
             if let Some(key) = parse_asset_key(&normalized_path, "textures", ".png") {
                 extracted.textures.insert(key, buf);
+            }
+        } else if is_mcmeta {
+            if let Some(key) = parse_asset_key(&normalized_path, "textures", ".png.mcmeta") {
+                extracted.texture_mcmeta.insert(key, buf);
             }
         } else if is_lang_json {
             extracted.raw_lang_files.insert(normalized_path.clone(), buf.clone());

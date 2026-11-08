@@ -288,6 +288,47 @@ pub fn build_rmod_package(
         write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, bytes)?;
     }
 
+    // 7b. Write texture .png.mcmeta animation metadata files in deterministic alphabetical order
+    let mut mcmeta_keys: Vec<_> = assets.texture_mcmeta.keys().collect();
+    mcmeta_keys.sort();
+    for key in mcmeta_keys {
+        let bytes = &assets.texture_mcmeta[key];
+        let zip_path = if let Some((ns, subpath)) = key.split_once(':') {
+            format!("assets/{ns}/textures/{subpath}.png.mcmeta")
+        } else {
+            format!("assets/{default_ns}/textures/{key}.png.mcmeta")
+        };
+        write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, bytes)?;
+    }
+
+    // 7c. Generate assets/minecraft/atlases/blocks.json to extend block/item atlas with custom texture subdirectories
+    let mut extra_texture_dirs = std::collections::BTreeSet::new();
+    for key in assets.textures.keys() {
+        if let Some((_ns, subpath)) = key.split_once(':')
+            && let Some((dir, _)) = subpath.split_once('/')
+            && dir != "block" && dir != "item"
+        {
+            extra_texture_dirs.insert(dir.to_string());
+        }
+    }
+    if !extra_texture_dirs.is_empty() {
+        let mut sources = Vec::new();
+        for dir in &extra_texture_dirs {
+            sources.push(serde_json::json!({
+                "type": "directory",
+                "source": dir,
+                "prefix": format!("{dir}/")
+            }));
+        }
+        let atlas_json = serde_json::json!({
+            "sources": sources
+        });
+        if let Ok(atlas_bytes) = serde_json::to_vec_pretty(&atlas_json) {
+            let atlas_path = "assets/minecraft/atlases/blocks.json";
+            write_zip_entry(&mut zip, &mut written_entries, options, atlas_path, &atlas_bytes)?;
+        }
+    }
+
     // 8. Write loot table JSON files in deterministic alphabetical order
     let mut loot_keys: Vec<_> = assets.loot_tables.keys().collect();
     loot_keys.sort();
@@ -380,34 +421,166 @@ pub fn build_rmod_package(
         write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, item_json.as_bytes())?;
     }
 
-    let mut tab_items = Vec::new();
+    // Gather all block and item IDs
+    let mut block_ids = Vec::new();
     for b in &ir.blocks {
         let full_id = if b.id.contains(':') {
             b.id.clone()
         } else {
             format!("{default_ns}:{}", b.id)
         };
-        tab_items.push(full_id);
+        if !block_ids.contains(&full_id) {
+            block_ids.push(full_id);
+        }
     }
+
+    let mut item_ids = Vec::new();
     for i in &ir.items {
         let full_id = if i.id.contains(':') {
             i.id.clone()
         } else {
             format!("{default_ns}:{}", i.id)
         };
-        if !tab_items.contains(&full_id) {
-            tab_items.push(full_id);
+        if !block_ids.contains(&full_id) && !item_ids.contains(&full_id) {
+            item_ids.push(full_id);
         }
     }
-    let icon_id = tab_items.first().cloned().unwrap_or_else(|| format!("{default_ns}:item"));
-    let tab_json = serde_json::json!({
-        "title": ir.metadata.name,
-        "icon": icon_id,
-        "items": tab_items,
-    });
-    if let Ok(tab_bytes) = serde_json::to_vec_pretty(&tab_json) {
-        let tab_path = format!("data/{default_ns}/horizon/creative_tab/{default_ns}.json");
-        write_zip_entry(&mut zip, &mut written_entries, options, &tab_path, &tab_bytes)?;
+
+    // Check if the mod defines creative tabs (or if lang keys declare multiple tabs)
+    let has_wizardry_tabs = ir.creative_tabs.iter().any(|t| t.id.contains("wands") || t.id.contains("armors"))
+        || ir.lang.keys().any(|k| k.contains("ebwizardry_wands") || k.contains("ebwizardry_armors"));
+
+    if has_wizardry_tabs {
+        // Build all 6 specialized tabs:
+        // 1. Blocks
+        let blocks_icon = block_ids.iter().find(|id| id.contains("crystal_block_magic"))
+            .cloned().or_else(|| block_ids.first().cloned())
+            .unwrap_or_else(|| format!("{default_ns}:block"));
+        let tab_blocks = serde_json::json!({
+            "title": format!("creativetab.{default_ns}_blocks"),
+            "icon": blocks_icon,
+            "items": block_ids,
+        });
+        if let Ok(bytes) = serde_json::to_vec_pretty(&tab_blocks) {
+            let path = format!("data/{default_ns}/horizon/creative_tab/{default_ns}_blocks.json");
+            write_zip_entry(&mut zip, &mut written_entries, options, &path, &bytes)?;
+        }
+
+        // 2. Wands
+        let wands: Vec<_> = item_ids.iter().filter(|id| id.contains("wand")).cloned().collect();
+        let wands_icon = wands.iter().find(|id| id.ends_with(":wand_novice") || id.contains("wand_novice"))
+            .cloned().or_else(|| wands.first().cloned())
+            .unwrap_or_else(|| format!("{default_ns}:item"));
+        if !wands.is_empty() {
+            let tab_wands = serde_json::json!({
+                "title": format!("creativetab.{default_ns}_wands"),
+                "icon": wands_icon,
+                "items": wands,
+            });
+            if let Ok(bytes) = serde_json::to_vec_pretty(&tab_wands) {
+                let path = format!("data/{default_ns}/horizon/creative_tab/{default_ns}_wands.json");
+                write_zip_entry(&mut zip, &mut written_entries, options, &path, &bytes)?;
+            }
+        }
+
+        // 3. Armors
+        let armors: Vec<_> = item_ids.iter().filter(|id| {
+            let s = id.as_str();
+            s.contains("wizard_hat") || s.contains("wizard_robe") || s.contains("wizard_leggings")
+                || s.contains("wizard_boots") || s.contains("sage_") || s.contains("battlemage_")
+                || s.contains("warlock_") || s.contains("hat") || s.contains("robe")
+                || s.contains("leggings") || s.contains("boots") || s.contains("hood")
+        }).cloned().collect();
+        let armors_icon = armors.iter().find(|id| id.ends_with(":wizard_hat") || id.contains("wizard_hat"))
+            .cloned().or_else(|| armors.first().cloned())
+            .unwrap_or_else(|| format!("{default_ns}:item"));
+        if !armors.is_empty() {
+            let tab_armors = serde_json::json!({
+                "title": format!("creativetab.{default_ns}_armors"),
+                "icon": armors_icon,
+                "items": armors,
+            });
+            if let Ok(bytes) = serde_json::to_vec_pretty(&tab_armors) {
+                let path = format!("data/{default_ns}/horizon/creative_tab/{default_ns}_armors.json");
+                write_zip_entry(&mut zip, &mut written_entries, options, &path, &bytes)?;
+            }
+        }
+
+        // 4. Artifacts
+        let artifacts: Vec<_> = item_ids.iter().filter(|id| {
+            let s = id.as_str();
+            s.contains("ring_") || s.contains("amulet_") || s.contains("charm_")
+        }).cloned().collect();
+        let artifacts_icon = artifacts.iter().find(|id| id.ends_with(":ring_condensing") || id.contains("ring_condensing"))
+            .cloned().or_else(|| artifacts.first().cloned())
+            .unwrap_or_else(|| format!("{default_ns}:item"));
+        if !artifacts.is_empty() {
+            let tab_artifacts = serde_json::json!({
+                "title": format!("creativetab.{default_ns}_artifacts"),
+                "icon": artifacts_icon,
+                "items": artifacts,
+            });
+            if let Ok(bytes) = serde_json::to_vec_pretty(&tab_artifacts) {
+                let path = format!("data/{default_ns}/horizon/creative_tab/{default_ns}_artifacts.json");
+                write_zip_entry(&mut zip, &mut written_entries, options, &path, &bytes)?;
+            }
+        }
+
+        // 5. Spells
+        let spells: Vec<_> = item_ids.iter().filter(|id| {
+            let s = id.as_str();
+            (s.contains("scroll") || s.contains("spell_book") || s.contains("tome"))
+                && !s.contains("special") && !s.contains("cloning")
+        }).cloned().collect();
+        let spells_icon = spells.iter().find(|id| id.ends_with(":spell_book") || id.contains("spell_book"))
+            .cloned().or_else(|| spells.first().cloned())
+            .unwrap_or_else(|| format!("{default_ns}:item"));
+        if !spells.is_empty() {
+            let tab_spells = serde_json::json!({
+                "title": format!("creativetab.{default_ns}_spells"),
+                "icon": spells_icon,
+                "items": spells,
+            });
+            if let Ok(bytes) = serde_json::to_vec_pretty(&tab_spells) {
+                let path = format!("data/{default_ns}/horizon/creative_tab/{default_ns}_spells.json");
+                write_zip_entry(&mut zip, &mut written_entries, options, &path, &bytes)?;
+            }
+        }
+
+        // 6. General / Main Items
+        let general: Vec<_> = item_ids.iter().filter(|id| {
+            !wands.contains(id) && !armors.contains(id) && !artifacts.contains(id) && !spells.contains(id)
+        }).cloned().collect();
+        let general_icon = general.iter().find(|id| id.ends_with(":magic_crystal") || id.contains("magic_crystal"))
+            .cloned().or_else(|| general.first().cloned())
+            .unwrap_or_else(|| format!("{default_ns}:item"));
+        let tab_general = serde_json::json!({
+            "title": format!("creativetab.{default_ns}"),
+            "icon": general_icon,
+            "items": general,
+        });
+        if let Ok(bytes) = serde_json::to_vec_pretty(&tab_general) {
+            let path = format!("data/{default_ns}/horizon/creative_tab/{default_ns}.json");
+            write_zip_entry(&mut zip, &mut written_entries, options, &path, &bytes)?;
+        }
+    } else {
+        // Single default tab containing all blocks and items
+        let mut tab_items = block_ids.clone();
+        for id in &item_ids {
+            if !tab_items.contains(id) {
+                tab_items.push(id.clone());
+            }
+        }
+        let icon_id = tab_items.first().cloned().unwrap_or_else(|| format!("{default_ns}:item"));
+        let tab_json = serde_json::json!({
+            "title": ir.metadata.name,
+            "icon": icon_id,
+            "items": tab_items,
+        });
+        if let Ok(tab_bytes) = serde_json::to_vec_pretty(&tab_json) {
+            let tab_path = format!("data/{default_ns}/horizon/creative_tab/{default_ns}.json");
+            write_zip_entry(&mut zip, &mut written_entries, options, &tab_path, &tab_bytes)?;
+        }
     }
 
     // 12. Write 1.21.4+ client item definitions (assets/<ns>/items/<name>.json)

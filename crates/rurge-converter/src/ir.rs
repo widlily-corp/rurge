@@ -429,6 +429,28 @@ impl RecipeDef {
     }
 }
 
+/// Definition of a creative inventory tab.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CreativeTabDef {
+    pub id: String,
+    pub title: String,
+    pub icon: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<String>,
+}
+
+impl CreativeTabDef {
+    /// Creates a new `CreativeTabDef`.
+    pub fn new(id: impl Into<String>, title: impl Into<String>, icon: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            title: title.into(),
+            icon: icon.into(),
+            items: Vec::new(),
+        }
+    }
+}
+
 /// Unified content intermediate representation holding all extracted assets and registrations.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContentIR {
@@ -441,6 +463,8 @@ pub struct ContentIR {
     pub item_actions: Vec<ItemActionDef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub block_triggers: Vec<BlockTriggerDef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub creative_tabs: Vec<CreativeTabDef>,
 }
 
 impl ContentIR {
@@ -454,6 +478,16 @@ impl ContentIR {
             lang: HashMap::new(),
             item_actions: Vec::new(),
             block_triggers: Vec::new(),
+            creative_tabs: Vec::new(),
+        }
+    }
+
+    /// Adds or updates a creative tab definition by ID.
+    pub fn add_creative_tab(&mut self, tab: CreativeTabDef) {
+        if let Some(existing) = self.creative_tabs.iter_mut().find(|t| t.id == tab.id) {
+            *existing = tab;
+        } else {
+            self.creative_tabs.push(tab);
         }
     }
 

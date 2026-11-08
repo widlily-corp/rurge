@@ -10,6 +10,7 @@ use std::collections::HashMap;
 enum RegistryKind {
     Block,
     Item,
+    CreativeTab,
     Other,
 }
 
@@ -98,6 +99,11 @@ fn discover_deferred_registers(
                         kind = RegistryKind::Block;
                     } else if f_name == "ITEMS" || descriptor.contains("Item") {
                         kind = RegistryKind::Item;
+                    } else if f_name.contains("CREATIVE")
+                        || f_name.contains("TAB")
+                        || descriptor.contains("CreativeModeTab")
+                    {
+                        kind = RegistryKind::CreativeTab;
                     }
                 }
                 _ => {}
@@ -121,8 +127,14 @@ fn discover_deferred_registers(
         }
 
         // Fallback register entry if putstatic was immediate or implicit
-        registers.insert((enclosing_class.to_string(), "BLOCKS".to_string()), (RegistryKind::Block, modid.clone()));
-        registers.insert((enclosing_class.to_string(), "ITEMS".to_string()), (RegistryKind::Item, modid));
+        if kind == RegistryKind::Block {
+            registers.insert((enclosing_class.to_string(), "BLOCKS".to_string()), (RegistryKind::Block, modid.clone()));
+        } else if kind == RegistryKind::Item {
+            registers.insert((enclosing_class.to_string(), "ITEMS".to_string()), (RegistryKind::Item, modid.clone()));
+        } else if kind == RegistryKind::CreativeTab {
+            registers.insert((enclosing_class.to_string(), "CREATIVE_MODE_TABS".to_string()), (RegistryKind::CreativeTab, modid.clone()));
+            registers.insert((enclosing_class.to_string(), "TAB".to_string()), (RegistryKind::CreativeTab, modid.clone()));
+        }
     }
 }
 
@@ -137,7 +149,7 @@ fn scan_forge_method_registrations(
     let mut reg_call_indices = Vec::new();
 
     for (i, instr) in instructions.iter().enumerate() {
-        if is_forge_register_call(instr) {
+        if is_forge_register_call(instr, enclosing_class) {
             reg_call_indices.push(i);
         }
     }
@@ -159,7 +171,7 @@ fn scan_forge_method_registrations(
     }
 }
 
-fn is_forge_register_call(instr: &DecodedInstruction) -> bool {
+fn is_forge_register_call(instr: &DecodedInstruction, enclosing_class: &str) -> bool {
     match &instr.op {
         Opcode::InvokeVirtual {
             class_name, name, ..
@@ -172,6 +184,26 @@ fn is_forge_register_call(instr: &DecodedInstruction) -> bool {
                     || class_name.contains("Registration")
                     || class_name.contains("RegisterEvent")
                     || class_name.contains("IForgeRegistry"))
+        }
+        Opcode::InvokeStatic {
+            class_name,
+            name,
+            descriptor,
+        } => {
+            let matches_name = name == "register"
+                || name.starts_with("register")
+                || name.starts_with("reg");
+            let matches_class = class_name == enclosing_class
+                || class_name.contains("Registry")
+                || class_name.contains("Register")
+                || class_name.contains("Item")
+                || class_name.contains("Block");
+            let returns_deferred = descriptor.ends_with("DeferredItem;")
+                || descriptor.ends_with("DeferredBlock;")
+                || descriptor.ends_with("DeferredHolder;")
+                || descriptor.ends_with("RegistryObject;");
+
+            (matches_name && matches_class) || returns_deferred
         }
         _ => false,
     }
@@ -221,6 +253,38 @@ fn process_forge_registration_window(
     }
 
     if entry_name.is_empty() {
+        return;
+    }
+
+    // Inspect the triggering register instruction itself if available
+    if let Some(last_instr) = window.last()
+        && let Opcode::InvokeStatic { name, descriptor, .. } = &last_instr.op
+    {
+        let desc_lower = descriptor.to_lowercase();
+        let name_lower = name.to_lowercase();
+        if desc_lower.ends_with("deferredblock;") || desc_lower.ends_with("/block;") || name_lower.contains("block") {
+            kind = RegistryKind::Block;
+        } else if desc_lower.ends_with("deferreditem;") || desc_lower.ends_with("/item;") || name_lower.contains("item") || name_lower.contains("wand") {
+            kind = RegistryKind::Item;
+        }
+    }
+
+    if kind == RegistryKind::CreativeTab || (kind == RegistryKind::Other && (enclosing_class.contains("Creative") || enclosing_class.contains("Tab"))) {
+        let title_key = format!("creativetab.{entry_name}");
+        let default_icon = format!("{modid}:{entry_name}");
+        ir.add_creative_tab(crate::ir::CreativeTabDef::new(entry_name, title_key, default_icon));
+        return;
+    }
+
+    // Skip registrations from non-content registries (Sounds, Particles, MobEffects, DamageSources, Menus, Biomes)
+    // or entries with dot-separated paths (e.g. sound events, translation keys)
+    if enclosing_class.contains("Sound")
+        || enclosing_class.contains("Particle")
+        || enclosing_class.contains("Damage")
+        || enclosing_class.contains("Menu")
+        || enclosing_class.contains("MobEffect")
+        || entry_name.contains('.')
+    {
         return;
     }
 

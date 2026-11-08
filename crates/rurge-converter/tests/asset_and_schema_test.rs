@@ -666,3 +666,173 @@ fn test_packager_writes_1_21_4_client_item_definitions() {
     }
 }
 
+#[test]
+fn test_packager_extracts_mcmeta_and_atlas_sources() {
+    use rurge_converter::packager::build_rmod_package;
+    use rurge_converter::ExtractedAssets;
+    use std::io::Read;
+
+    let meta = ModMetadata {
+        id: "ebwizardry".into(),
+        name: "Electroblob's Wizardry".into(),
+        version: "1.0.2".into(),
+        authors: vec![],
+        description: "".into(),
+        loader: ModLoader::Forge,
+    };
+    let ir = ContentIR::new(meta);
+    let mut assets = ExtractedAssets::new();
+
+    // Add animated texture with companion mcmeta
+    assets.textures.insert("ebwizardry:item/astral_diamond".to_string(), b"fake png".to_vec());
+    assets.texture_mcmeta.insert(
+        "ebwizardry:item/astral_diamond".to_string(),
+        br#"{"animation":{"frametime":2}}"#.to_vec(),
+    );
+
+    // Add textures in non-standard subdirectories (entity, spells, particle)
+    assets.textures.insert("ebwizardry:entity/lightning_hammer".to_string(), b"hammer png".to_vec());
+    assets.textures.insert("ebwizardry:spells/fireball".to_string(), b"spell png".to_vec());
+    assets.textures.insert("ebwizardry:particle/spark".to_string(), b"spark png".to_vec());
+
+    let compat = audit_compatibility(ModLoader::Forge, &[], &[], &ir);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let rmod_path = temp_dir.path().join("ebwizardry.rmod");
+
+    build_rmod_package(&ir, &assets, &compat, &rmod_path).unwrap();
+
+    let file = std::fs::File::open(&rmod_path).unwrap();
+    let mut zip = zip::ZipArchive::new(file).unwrap();
+
+    // Verify .png.mcmeta file is present
+    {
+        let mut mcmeta_entry = zip
+            .by_name("assets/ebwizardry/textures/item/astral_diamond.png.mcmeta")
+            .expect("astral_diamond.png.mcmeta must be written");
+        let mut mcmeta_str = String::new();
+        mcmeta_entry.read_to_string(&mut mcmeta_str).unwrap();
+        assert!(mcmeta_str.contains("animation"));
+    }
+
+    // Verify assets/minecraft/atlases/blocks.json is generated with directory sources
+    {
+        let mut atlas_entry = zip
+            .by_name("assets/minecraft/atlases/blocks.json")
+            .expect("assets/minecraft/atlases/blocks.json must be generated");
+        let mut atlas_str = String::new();
+        atlas_entry.read_to_string(&mut atlas_str).unwrap();
+        assert!(atlas_str.contains(r#""source": "entity""#));
+        assert!(atlas_str.contains(r#""source": "spells""#));
+        assert!(atlas_str.contains(r#""source": "particle""#));
+    }
+}
+
+#[test]
+fn test_packager_partitions_wizardry_creative_tabs() {
+    use rurge_converter::packager::build_rmod_package;
+    use rurge_converter::ExtractedAssets;
+    use std::io::Read;
+
+    let meta = ModMetadata {
+        id: "ebwizardry".into(),
+        name: "Electroblob's Wizardry".into(),
+        version: "1.0.2".into(),
+        authors: vec![],
+        description: "".into(),
+        loader: ModLoader::Forge,
+    };
+    let mut ir = ContentIR::new(meta);
+    let assets = ExtractedAssets::new();
+
+    // Add blocks
+    ir.add_block(BlockDef::new("ebwizardry:crystal_block_magic"));
+    ir.add_block(BlockDef::new("ebwizardry:imbuement_altar"));
+
+    // Add wands
+    ir.add_item(ItemDef::new("ebwizardry:wand_novice"));
+    ir.add_item(ItemDef::new("ebwizardry:wand_master_fire"));
+
+    // Add armors
+    ir.add_item(ItemDef::new("ebwizardry:wizard_hat"));
+    ir.add_item(ItemDef::new("ebwizardry:battlemage_robe"));
+
+    // Add artifacts
+    ir.add_item(ItemDef::new("ebwizardry:ring_condensing"));
+    ir.add_item(ItemDef::new("ebwizardry:charm_storm"));
+
+    // Add spells
+    ir.add_item(ItemDef::new("ebwizardry:spell_book"));
+    ir.add_item(ItemDef::new("ebwizardry:scroll"));
+
+    // Add general items
+    ir.add_item(ItemDef::new("ebwizardry:magic_crystal"));
+    ir.add_item(ItemDef::new("ebwizardry:mana_flask_small"));
+
+    // Language keys for creative tabs
+    ir.lang.insert("creativetab.ebwizardry_blocks".to_string(), "Wizardry Blocks".to_string());
+    ir.lang.insert("creativetab.ebwizardry_wands".to_string(), "Wizardry Wands".to_string());
+    ir.lang.insert("creativetab.ebwizardry_armors".to_string(), "Wizardry Armors".to_string());
+    ir.lang.insert("creativetab.ebwizardry_artifacts".to_string(), "Wizardry Artifacts".to_string());
+    ir.lang.insert("creativetab.ebwizardry_spells".to_string(), "Wizardry Spells".to_string());
+    ir.lang.insert("creativetab.ebwizardry".to_string(), "Wizardry Items".to_string());
+
+    let compat = audit_compatibility(ModLoader::Forge, &[], &[], &ir);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let rmod_path = temp_dir.path().join("ebwizardry.rmod");
+
+    build_rmod_package(&ir, &assets, &compat, &rmod_path).unwrap();
+
+    let file = std::fs::File::open(&rmod_path).unwrap();
+    let mut zip = zip::ZipArchive::new(file).unwrap();
+
+    // Verify all 6 tabs exist
+    let tabs = [
+        "ebwizardry_blocks",
+        "ebwizardry_wands",
+        "ebwizardry_armors",
+        "ebwizardry_artifacts",
+        "ebwizardry_spells",
+        "ebwizardry",
+    ];
+
+    for tab in tabs {
+        let entry_path = format!("data/ebwizardry/horizon/creative_tab/{tab}.json");
+        let mut entry = zip.by_name(&entry_path).unwrap_or_else(|_| panic!("{entry_path} must exist in rmod"));
+        let mut content = String::new();
+        entry.read_to_string(&mut content).unwrap();
+
+        match tab {
+            "ebwizardry_blocks" => {
+                assert!(content.contains("ebwizardry:crystal_block_magic"));
+                assert!(!content.contains("ebwizardry:wand_novice"));
+            }
+            "ebwizardry_wands" => {
+                assert!(content.contains("ebwizardry:wand_novice"));
+                assert!(content.contains("ebwizardry:wand_master_fire"));
+                assert!(!content.contains("ebwizardry:wizard_hat"));
+            }
+            "ebwizardry_armors" => {
+                assert!(content.contains("ebwizardry:wizard_hat"));
+                assert!(content.contains("ebwizardry:battlemage_robe"));
+                assert!(!content.contains("ebwizardry:ring_condensing"));
+            }
+            "ebwizardry_artifacts" => {
+                assert!(content.contains("ebwizardry:ring_condensing"));
+                assert!(content.contains("ebwizardry:charm_storm"));
+                assert!(!content.contains("ebwizardry:spell_book"));
+            }
+            "ebwizardry_spells" => {
+                assert!(content.contains("ebwizardry:spell_book"));
+                assert!(content.contains("ebwizardry:scroll"));
+                assert!(!content.contains("ebwizardry:magic_crystal"));
+            }
+            "ebwizardry" => {
+                assert!(content.contains("ebwizardry:magic_crystal"));
+                assert!(content.contains("ebwizardry:mana_flask_small"));
+                assert!(!content.contains("ebwizardry:wand_novice"));
+            }
+            _ => {}
+        }
+    }
+}
+

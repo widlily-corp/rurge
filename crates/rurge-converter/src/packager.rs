@@ -440,10 +440,10 @@ pub fn build_rmod_package(
         } else {
             (default_ns.as_str(), key.as_str())
         };
-        if let Some(subpath) = rel.strip_prefix("item/") {
-            if !all_item_keys.iter().any(|(n, s, _)| n == ns && s == subpath) {
-                all_item_keys.push((ns.to_string(), subpath.to_string(), false));
-            }
+        if let Some(subpath) = rel.strip_prefix("item/")
+            && !all_item_keys.iter().any(|(n, s, _)| n == ns && s == subpath)
+        {
+            all_item_keys.push((ns.to_string(), subpath.to_string(), false));
         }
     }
 

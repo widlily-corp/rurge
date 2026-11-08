@@ -99,6 +99,12 @@ pub fn scan_spells(classes: &[ClassFile], meta: &ModMetadata, ir: &mut ContentIR
                 book.components.insert("minecraft:lore".to_string(), lore_val);
             }
 
+            let mut custom_data = serde_json::Map::new();
+            custom_data.insert("spell".to_string(), serde_json::json!(format!("{modid}:{spell}")));
+            custom_data.insert("element".to_string(), serde_json::json!(elem_name.to_lowercase()));
+            custom_data.insert("tier".to_string(), serde_json::json!(tier_name.to_lowercase()));
+            book.components.insert("minecraft:custom_data".to_string(), serde_json::Value::Object(custom_data));
+
             new_items.push(book);
             new_lang.push((format!("item.{modid}.spell_book_{spell}"), format!("Spell Book: {spell_name}")));
         }
@@ -122,6 +128,12 @@ pub fn scan_spells(classes: &[ClassFile], meta: &ModMetadata, ir: &mut ContentIR
             if let Ok(lore_val) = serde_json::to_value(&scroll_lore) {
                 scroll.components.insert("minecraft:lore".to_string(), lore_val);
             }
+
+            let mut custom_data = serde_json::Map::new();
+            custom_data.insert("spell".to_string(), serde_json::json!(format!("{modid}:{spell}")));
+            custom_data.insert("element".to_string(), serde_json::json!(elem_name.to_lowercase()));
+            custom_data.insert("tier".to_string(), serde_json::json!(tier_name.to_lowercase()));
+            scroll.components.insert("minecraft:custom_data".to_string(), serde_json::Value::Object(custom_data));
 
             // Build spell action
             let mut effects = Vec::new();
@@ -276,6 +288,12 @@ fn enrich_existing_content(ir: &mut ContentIR) {
             if let Ok(v) = serde_json::to_value(&lore) {
                 item.components.insert("minecraft:lore".to_string(), v);
             }
+            let mut custom_data = serde_json::Map::new();
+            custom_data.insert("mana".to_string(), serde_json::json!(max_mana));
+            custom_data.insert("max_mana".to_string(), serde_json::json!(max_mana));
+            custom_data.insert("tier".to_string(), serde_json::json!(tier.to_lowercase()));
+            custom_data.insert("element".to_string(), serde_json::json!(elem.to_lowercase()));
+            item.components.insert("minecraft:custom_data".to_string(), serde_json::Value::Object(custom_data));
         }
         // 2. Wizard Robes & Armor
         else if (lower.contains("wizard_hat") || lower.contains("wizard_robe") || lower.contains("wizard_leggings") || lower.contains("wizard_boots"))
@@ -290,6 +308,9 @@ fn enrich_existing_content(ir: &mut ContentIR) {
             if let Ok(v) = serde_json::to_value(&lore) {
                 item.components.insert("minecraft:lore".to_string(), v);
             }
+            let mut custom_data = serde_json::Map::new();
+            custom_data.insert("element".to_string(), serde_json::json!(elem.to_lowercase()));
+            item.components.insert("minecraft:custom_data".to_string(), serde_json::Value::Object(custom_data));
         }
         // 3. Blank Books & Scrolls
         else if lower.contains("blank_scroll") && !item.components.contains_key("minecraft:lore") {
@@ -299,6 +320,9 @@ fn enrich_existing_content(ir: &mut ContentIR) {
             if let Ok(v) = serde_json::to_value(&lore) {
                 item.components.insert("minecraft:lore".to_string(), v);
             }
+            let mut custom_data = serde_json::Map::new();
+            custom_data.insert("blank_scroll".to_string(), serde_json::json!(true));
+            item.components.insert("minecraft:custom_data".to_string(), serde_json::Value::Object(custom_data));
         }
         else if lower.contains("blank_spell_book") && !item.components.contains_key("minecraft:lore") {
             let lore = vec![
@@ -307,6 +331,9 @@ fn enrich_existing_content(ir: &mut ContentIR) {
             if let Ok(v) = serde_json::to_value(&lore) {
                 item.components.insert("minecraft:lore".to_string(), v);
             }
+            let mut custom_data = serde_json::Map::new();
+            custom_data.insert("blank_spell_book".to_string(), serde_json::json!(true));
+            item.components.insert("minecraft:custom_data".to_string(), serde_json::Value::Object(custom_data));
         }
         // 4. Magic Crystals
         else if lower.contains("magic_crystal") && !item.components.contains_key("minecraft:lore") {
@@ -318,10 +345,12 @@ fn enrich_existing_content(ir: &mut ContentIR) {
             if let Ok(v) = serde_json::to_value(&lore) {
                 item.components.insert("minecraft:lore".to_string(), v);
             }
+            let mut custom_data = serde_json::Map::new();
+            custom_data.insert("mana_crystal".to_string(), serde_json::json!(true));
+            item.components.insert("minecraft:custom_data".to_string(), serde_json::Value::Object(custom_data));
         }
     }
-
-    // 5. Blocks (Arcane Workbench, Altar)
+    
     for block in &mut ir.blocks {
         let lower = block.id.to_ascii_lowercase();
         if (lower.contains("workbench") || lower.contains("altar") || lower.contains("pedestal"))

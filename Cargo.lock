@@ -3576,8 +3576,11 @@ dependencies = [
  "bumpalo",
  "crossbeam",
  "env_logger",
+ "horizon-client",
  "horizon-client-render",
+ "horizon-mods",
  "horizon-protocol",
+ "horizon-shaders",
  "horizon-threads",
  "horizon-world",
  "log",
@@ -3585,6 +3588,9 @@ dependencies = [
  "pollster",
  "rayon",
  "rurge-api",
+ "rurge-converter",
+ "rurge-core",
+ "rurge-horizon",
  "rurge-installer",
  "rurge-runtime",
  "serde_json",
@@ -3592,6 +3598,7 @@ dependencies = [
  "tempfile",
  "wgpu",
  "winit",
+ "zip 9.3.0",
 ]
 
 [[package]]

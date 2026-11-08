@@ -1,6 +1,7 @@
 //! Core engine library for the standalone multi-core Rurge client.
 
 pub mod branding;
+pub mod engine_host;
 pub mod governor;
 pub mod hardware;
 pub mod memory;

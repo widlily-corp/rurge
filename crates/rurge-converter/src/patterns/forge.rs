@@ -1,10 +1,12 @@
 //! Pattern matchers for Forge `DeferredRegister` and `RegistryObject` registration.
 
 use super::{DecodedInstruction, Opcode};
-use crate::bytecode::ClassFile;
+use crate::bytecode::{ClassFile, ClassHierarchy};
 use crate::ir::{BlockDef, ContentIR, FoodStats, ItemDef, ToolStats, ToolType};
 use crate::manifest::ModMetadata;
 use std::collections::HashMap;
+
+use crate::templates::TemplateEngine;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RegistryKind {
@@ -16,6 +18,8 @@ enum RegistryKind {
 
 /// Scans classes for Forge `DeferredRegister` instances and `.register(...)` calls.
 pub fn scan_forge_classes(classes: &[ClassFile], meta: &ModMetadata, ir: &mut ContentIR) {
+    let hierarchy = ClassHierarchy::from_classes(classes);
+
     // Phase 1: Discover all DeferredRegister static fields and their registry types
     let mut registers: HashMap<(String, String), (RegistryKind, String)> = HashMap::new();
 
@@ -43,6 +47,7 @@ pub fn scan_forge_classes(classes: &[ClassFile], meta: &ModMetadata, ir: &mut Co
                     class_name,
                     meta,
                     &registers,
+                    &hierarchy,
                     ir,
                 );
             }
@@ -144,6 +149,7 @@ fn scan_forge_method_registrations(
     enclosing_class: &str,
     meta: &ModMetadata,
     registers: &HashMap<(String, String), (RegistryKind, String)>,
+    hierarchy: &ClassHierarchy,
     ir: &mut ContentIR,
 ) {
     let mut reg_call_indices = Vec::new();
@@ -164,6 +170,7 @@ fn scan_forge_method_registrations(
             enclosing_class,
             meta,
             registers,
+            hierarchy,
             lambda_counter,
             ir,
         );
@@ -209,12 +216,14 @@ fn is_forge_register_call(instr: &DecodedInstruction, enclosing_class: &str) -> 
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn process_forge_registration_window(
     window: &[DecodedInstruction],
     class: &ClassFile,
     enclosing_class: &str,
     meta: &ModMetadata,
     registers: &HashMap<(String, String), (RegistryKind, String)>,
+    hierarchy: &ClassHierarchy,
     lambda_index: usize,
     ir: &mut ContentIR,
 ) {
@@ -294,6 +303,28 @@ fn process_forge_registration_window(
         format!("{modid}:{entry_name}")
     };
 
+    // 2. Scan properties in window AND in supplier lambda methods
+    let mut lambda_instructions = Vec::new();
+    find_supplier_instructions(class, lambda_index, &mut lambda_instructions);
+
+    let instantiated_class = find_instantiated_class(window, &lambda_instructions);
+
+    if kind == RegistryKind::Other
+        && let Some(ref cls) = instantiated_class
+    {
+        if hierarchy.is_block(cls) {
+            kind = RegistryKind::Block;
+        } else if hierarchy.is_item(cls)
+            || hierarchy.is_sword(cls)
+            || hierarchy.is_axe(cls)
+            || hierarchy.is_pickaxe(cls)
+            || hierarchy.is_armor(cls)
+            || hierarchy.is_bow(cls)
+        {
+            kind = RegistryKind::Item;
+        }
+    }
+
     // If kind is still Other, infer from entry name
     if kind == RegistryKind::Other {
         let lower = entry_name.to_lowercase();
@@ -304,12 +335,20 @@ fn process_forge_registration_window(
         }
     }
 
-    // 2. Scan properties in window AND in supplier lambda methods
-    let mut lambda_instructions = Vec::new();
-    find_supplier_instructions(class, lambda_index, &mut lambda_instructions);
-
     if kind == RegistryKind::Block {
         let mut block = BlockDef::new(&full_id);
+        let block_template = TemplateEngine::infer_block_template(
+            &entry_name,
+            instantiated_class.as_deref().or(Some(enclosing_class)),
+            Some(hierarchy),
+        );
+        block.hardness = block_template.hardness;
+        block.resistance = block_template.resistance;
+        block.light_emission = block_template.light_level as u32;
+        if block_template.requires_tool {
+            block.tool = Some(ToolType::Pickaxe);
+        }
+
         extract_forge_block_properties(window, &mut block);
         if !lambda_instructions.is_empty() {
             extract_forge_block_properties(&lambda_instructions, &mut block);
@@ -317,12 +356,73 @@ fn process_forge_registration_window(
         ir.add_block(block);
     } else {
         let mut item = ItemDef::new(&full_id);
+        let item_template = TemplateEngine::infer_item_template(
+            &entry_name,
+            instantiated_class.as_deref().or(Some(enclosing_class)),
+            Some(hierarchy),
+        );
+        item.max_stack_size = item_template.max_stack_size;
+        if let Some(dur) = item_template.durability {
+            item.durability = dur;
+        }
+
+        let detected_tool_type = instantiated_class
+            .as_deref()
+            .and_then(|cls| {
+                if hierarchy.is_pickaxe(cls) {
+                    Some(ToolType::Pickaxe)
+                } else if hierarchy.is_axe(cls) {
+                    Some(ToolType::Axe)
+                } else if hierarchy.is_sword(cls) {
+                    Some(ToolType::Sword)
+                } else {
+                    ToolType::from_name(cls)
+                }
+            })
+            .or_else(|| ToolType::from_name(&entry_name));
+
+        if let Some(tool_type) = detected_tool_type {
+            let dmg = item_template.attack_damage.unwrap_or(match tool_type {
+                ToolType::Pickaxe => 2.0,
+                ToolType::Axe => 6.0,
+                ToolType::Shovel => 1.5,
+                ToolType::Hoe => 0.0,
+                ToolType::Sword => 4.0,
+            });
+            let spd = item_template.attack_speed.unwrap_or(6.0);
+            item.tool = Some(ToolStats {
+                tool_type,
+                speed: spd,
+                attack_damage: dmg,
+                mining_level: 2,
+            });
+        }
+
         extract_forge_item_properties(window, &full_id, &mut item);
         if !lambda_instructions.is_empty() {
             extract_forge_item_properties(&lambda_instructions, &full_id, &mut item);
         }
         ir.add_item(item);
     }
+}
+
+fn find_instantiated_class(
+    window: &[DecodedInstruction],
+    lambda_instructions: &[DecodedInstruction],
+) -> Option<String> {
+    for instr in lambda_instructions.iter().chain(window.iter()).rev() {
+        if let Opcode::New(cls) = &instr.op {
+            let simple = cls.rsplit('/').next().unwrap_or(cls);
+            if !simple.ends_with("Properties")
+                && !simple.contains("DeferredRegister")
+                && !simple.contains("RegistryObject")
+                && !simple.contains("Supplier")
+            {
+                return Some(cls.clone());
+            }
+        }
+    }
+    None
 }
 
 fn find_supplier_instructions(
@@ -395,25 +495,27 @@ fn extract_forge_block_properties(instructions: &[DecodedInstruction], block: &m
 }
 
 fn extract_forge_item_properties(instructions: &[DecodedInstruction], id: &str, item: &mut ItemDef) {
-    for instr in instructions {
-        let tool_from_class = match &instr.op {
-            Opcode::New(cls) => ToolType::from_name(cls),
-            _ => None,
-        };
-        if let Some(tool_type) = tool_from_class {
-            item.tool = Some(ToolStats {
-                tool_type,
-                speed: 6.0,
-                attack_damage: match tool_type {
-                    ToolType::Pickaxe => 2.0,
-                    ToolType::Axe => 6.0,
-                    ToolType::Shovel => 1.5,
-                    ToolType::Hoe => 0.0,
-                    ToolType::Sword => 4.0,
-                },
-                mining_level: 2,
-            });
-            break;
+    if item.tool.is_none() {
+        for instr in instructions {
+            let tool_from_class = match &instr.op {
+                Opcode::New(cls) => ToolType::from_name(cls),
+                _ => None,
+            };
+            if let Some(tool_type) = tool_from_class {
+                item.tool = Some(ToolStats {
+                    tool_type,
+                    speed: 6.0,
+                    attack_damage: match tool_type {
+                        ToolType::Pickaxe => 2.0,
+                        ToolType::Axe => 6.0,
+                        ToolType::Shovel => 1.5,
+                        ToolType::Hoe => 0.0,
+                        ToolType::Sword => 4.0,
+                    },
+                    mining_level: 2,
+                });
+                break;
+            }
         }
     }
 
@@ -466,5 +568,169 @@ fn extract_forge_item_properties(instructions: &[DecodedInstruction], id: &str, 
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::manifest::ModLoader;
+    use crate::bytecode::constant_pool::ConstantPool;
+
+    fn make_empty_class(_name: &str) -> ClassFile {
+        ClassFile {
+            minor_version: 0,
+            major_version: 65,
+            constant_pool: ConstantPool::new(),
+            access_flags: 1,
+            this_class: 0,
+            super_class: 0,
+            interfaces: vec![],
+            fields: vec![],
+            methods: vec![],
+            attributes: vec![],
+        }
+    }
+
+    #[test]
+    fn test_find_instantiated_class() {
+        let window = vec![
+            DecodedInstruction {
+                offset: 0,
+                raw_opcode: 0xBB,
+                op: Opcode::New("net/minecraft/world/item/Item$Properties".to_string()),
+            },
+        ];
+        let lambda = vec![
+            DecodedInstruction {
+                offset: 5,
+                raw_opcode: 0xBB,
+                op: Opcode::New("com/example/mod/RubySword".to_string()),
+            },
+        ];
+        assert_eq!(
+            find_instantiated_class(&window, &lambda),
+            Some("com/example/mod/RubySword".to_string())
+        );
+    }
+
+    #[test]
+    fn test_forge_block_template_defaults() {
+        let meta = ModMetadata {
+            id: "mymod".to_string(),
+            name: "My Mod".to_string(),
+            version: "1.0.0".to_string(),
+            authors: vec![],
+            description: "".to_string(),
+            loader: ModLoader::Forge,
+        };
+        let mut ir = ContentIR::new(meta.clone());
+        let mut registers = HashMap::new();
+        registers.insert(
+            ("mymod/ModBlocks".to_string(), "BLOCKS".to_string()),
+            (RegistryKind::Block, "mymod".to_string()),
+        );
+
+        let window = vec![
+            DecodedInstruction {
+                offset: 0,
+                raw_opcode: 0xB2,
+                op: Opcode::GetStatic {
+                    class_name: "mymod/ModBlocks".to_string(),
+                    name: "BLOCKS".to_string(),
+                    descriptor: "Lnet/minecraftforge/registries/DeferredRegister;".to_string(),
+                },
+            },
+            DecodedInstruction {
+                offset: 3,
+                raw_opcode: 0x12,
+                op: Opcode::LdcString("deepslate_tin_ore".to_string()),
+            },
+        ];
+
+        let class = make_empty_class("mymod/ModBlocks");
+        let hierarchy = ClassHierarchy::new();
+
+        process_forge_registration_window(
+            &window,
+            &class,
+            "mymod/ModBlocks",
+            &meta,
+            &registers,
+            &hierarchy,
+            0,
+            &mut ir,
+        );
+
+        let block = ir.get_block("mymod:deepslate_tin_ore").expect("Block registered");
+        assert_eq!(block.hardness, 4.5);
+        assert_eq!(block.resistance, 4.5);
+        assert_eq!(block.tool, Some(ToolType::Pickaxe));
+    }
+
+    #[test]
+    fn test_forge_item_template_and_hierarchy_defaults() {
+        let meta = ModMetadata {
+            id: "mymod".to_string(),
+            name: "My Mod".to_string(),
+            version: "1.0.0".to_string(),
+            authors: vec![],
+            description: "".to_string(),
+            loader: ModLoader::Forge,
+        };
+        let mut ir = ContentIR::new(meta.clone());
+        let mut registers = HashMap::new();
+        registers.insert(
+            ("mymod/ModItems".to_string(), "ITEMS".to_string()),
+            (RegistryKind::Item, "mymod".to_string()),
+        );
+
+        let mut hierarchy = ClassHierarchy::new();
+        hierarchy.add_class(
+            "com/example/mod/ObsidianBattleAxe",
+            Some("net/minecraft/world/item/AxeItem"),
+            &[],
+        );
+
+        let window = vec![
+            DecodedInstruction {
+                offset: 0,
+                raw_opcode: 0xB2,
+                op: Opcode::GetStatic {
+                    class_name: "mymod/ModItems".to_string(),
+                    name: "ITEMS".to_string(),
+                    descriptor: "Lnet/minecraftforge/registries/DeferredRegister;".to_string(),
+                },
+            },
+            DecodedInstruction {
+                offset: 3,
+                raw_opcode: 0x12,
+                op: Opcode::LdcString("obsidian_axe".to_string()),
+            },
+            DecodedInstruction {
+                offset: 6,
+                raw_opcode: 0xBB,
+                op: Opcode::New("com/example/mod/ObsidianBattleAxe".to_string()),
+            },
+        ];
+
+        let class = make_empty_class("mymod/ModItems");
+
+        process_forge_registration_window(
+            &window,
+            &class,
+            "mymod/ModItems",
+            &meta,
+            &registers,
+            &hierarchy,
+            0,
+            &mut ir,
+        );
+
+        let item = ir.get_item("mymod:obsidian_axe").expect("Item registered");
+        assert_eq!(item.max_stack_size, 1);
+        let tool = item.tool.as_ref().expect("Tool stats must exist");
+        assert_eq!(tool.tool_type, ToolType::Axe);
+        assert!(tool.attack_damage >= 9.0);
     }
 }

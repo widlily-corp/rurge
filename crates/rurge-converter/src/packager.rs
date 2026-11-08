@@ -6,6 +6,7 @@ use crate::error::Result;
 use crate::ir::{ContentIR, RecipeDef};
 use crate::manifest::ModMetadata;
 use crate::schema::{ContentSchema, SchemaRecipe, SchemaRecipeResult};
+use crate::templates::TemplateEngine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs::File;
@@ -390,7 +391,7 @@ pub fn build_rmod_package(
         )?;
     }
 
-        // 11. Write Horizon content declarations (blocks, items, creative tabs)
+    // 11. Write Horizon content declarations (blocks, items, entities, effects, creative tabs)
     let mut declared_block_subpaths = HashSet::new();
     for block in &ir.blocks {
         let (ns, subpath) = if let Some((ns, sub)) = block.id.split_once(':') {
@@ -400,8 +401,20 @@ pub fn build_rmod_package(
         };
         declared_block_subpaths.insert(subpath.to_string());
         let zip_path = format!("data/{ns}/horizon/block/{subpath}.json");
-        let block_json = r#"{"template":"minecraft:stone","item":true}"#;
-        write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, block_json.as_bytes())?;
+        let block_info = TemplateEngine::infer_block_template(&block.id, None, None);
+        let block_json = serde_json::json!({
+            "template": block_info.template,
+            "item": true,
+            "properties": {
+                "hardness": block_info.hardness,
+                "explosion_resistance": block_info.resistance,
+                "light": block_info.light_level,
+                "requires_tool": block_info.requires_tool
+            }
+        });
+        if let Ok(bytes) = serde_json::to_vec_pretty(&block_json) {
+            write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, &bytes)?;
+        }
     }
 
     for item in &ir.items {
@@ -416,9 +429,19 @@ pub fn build_rmod_package(
             continue;
         }
         let zip_path = format!("data/{ns}/horizon/item/{subpath}.json");
-        let stack_size = item.max_stack_size.clamp(1, 99);
-        let item_json = format!(r#"{{"template":"minecraft:stick","max_stack_size":{stack_size}}}"#);
-        write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, item_json.as_bytes())?;
+        let item_info = TemplateEngine::infer_item_template(&item.id, None, None);
+        let effective_stack = if item.max_stack_size != 64 {
+            item.max_stack_size.clamp(1, 99) as u8
+        } else {
+            item_info.max_stack_size.clamp(1, 99) as u8
+        };
+        let item_json = serde_json::json!({
+            "template": item_info.template,
+            "max_stack_size": effective_stack,
+        });
+        if let Ok(bytes) = serde_json::to_vec_pretty(&item_json) {
+            write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, &bytes)?;
+        }
     }
 
     // Gather all block and item IDs
@@ -443,6 +466,61 @@ pub fn build_rmod_package(
         };
         if !block_ids.contains(&full_id) && !item_ids.contains(&full_id) {
             item_ids.push(full_id);
+        }
+    }
+
+    // 11b. Write Horizon entity types (data/<ns>/horizon/entity_type/<name>.json)
+    let mut used_entity_items = HashSet::new();
+    for entity in &ir.entity_types {
+        let (ns, subpath) = if let Some((ns, sub)) = entity.id.split_once(':') {
+            (ns, sub)
+        } else {
+            (default_ns.as_str(), entity.id.as_str())
+        };
+
+        // Strict engine constraint: item must belong to this mod and each entity type must have a unique item
+        let bound_item = item_ids.iter().find(|id| {
+            let item_sub = id.split(':').next_back().unwrap_or(id);
+            (item_sub == subpath || item_sub.contains(subpath) || subpath.contains(item_sub))
+                && !used_entity_items.contains(*id)
+        }).cloned().or_else(|| {
+            item_ids.iter().find(|id| !used_entity_items.contains(*id)).cloned()
+        });
+
+        if let Some(item_id) = bound_item {
+            used_entity_items.insert(item_id.clone());
+            let zip_path = format!("data/{ns}/horizon/entity_type/{subpath}.json");
+            let entity_json = serde_json::json!({
+                "template": "minecraft:snowball",
+                "item": item_id,
+                "damage": 4.0
+            });
+            if let Ok(bytes) = serde_json::to_vec_pretty(&entity_json) {
+                write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, &bytes)?;
+            }
+        }
+    }
+
+    // 11c. Write Horizon mob effects (data/<ns>/horizon/mob_effect/<name>.json)
+    for effect in &ir.mob_effects {
+        let (ns, subpath) = if let Some((ns, sub)) = effect.id.split_once(':') {
+            (ns, sub)
+        } else {
+            (default_ns.as_str(), effect.id.as_str())
+        };
+        let cat = match effect.category.to_lowercase().as_str() {
+            "beneficial" => "beneficial",
+            "harmful" => "harmful",
+            _ => "neutral",
+        };
+        let color = effect.color.min(0xFFFFFF);
+        let zip_path = format!("data/{ns}/horizon/mob_effect/{subpath}.json");
+        let effect_json = serde_json::json!({
+            "category": cat,
+            "color": color
+        });
+        if let Ok(bytes) = serde_json::to_vec_pretty(&effect_json) {
+            write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, &bytes)?;
         }
     }
 
@@ -563,6 +641,37 @@ pub fn build_rmod_package(
             let path = format!("data/{default_ns}/horizon/creative_tab/{default_ns}.json");
             write_zip_entry(&mut zip, &mut written_entries, options, &path, &bytes)?;
         }
+    } else if !ir.creative_tabs.is_empty() {
+        for tab in &ir.creative_tabs {
+            let tab_subpath = tab.id.split(':').next_back().unwrap_or(&tab.id);
+            let tab_items: Vec<String> = if !tab.items.is_empty() {
+                tab.items.clone()
+            } else {
+                let matched: Vec<_> = item_ids.iter().chain(block_ids.iter()).filter(|id| {
+                    let sub = id.split(':').next_back().unwrap_or(id);
+                    sub.contains(tab_subpath) || tab_subpath.contains(sub)
+                }).cloned().collect();
+                if !matched.is_empty() {
+                    matched
+                } else {
+                    item_ids.iter().chain(block_ids.iter()).cloned().collect()
+                }
+            };
+            let icon_id = if item_ids.contains(&tab.icon) || block_ids.contains(&tab.icon) {
+                tab.icon.clone()
+            } else {
+                tab_items.first().cloned().unwrap_or_else(|| format!("{default_ns}:item"))
+            };
+            let tab_json = serde_json::json!({
+                "title": tab.title,
+                "icon": icon_id,
+                "items": tab_items,
+            });
+            if let Ok(tab_bytes) = serde_json::to_vec_pretty(&tab_json) {
+                let tab_path = format!("data/{default_ns}/horizon/creative_tab/{tab_subpath}.json");
+                write_zip_entry(&mut zip, &mut written_entries, options, &tab_path, &tab_bytes)?;
+            }
+        }
     } else {
         // Single default tab containing all blocks and items
         let mut tab_items = block_ids.clone();
@@ -573,7 +682,7 @@ pub fn build_rmod_package(
         }
         let icon_id = tab_items.first().cloned().unwrap_or_else(|| format!("{default_ns}:item"));
         let tab_json = serde_json::json!({
-            "title": ir.metadata.name,
+            "title": format!("creativetab.{default_ns}"),
             "icon": icon_id,
             "items": tab_items,
         });

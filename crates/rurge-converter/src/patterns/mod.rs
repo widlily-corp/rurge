@@ -1,5 +1,7 @@
 //! Multi-loader registry pattern matchers for Fabric, Forge, and NeoForge.
 
+pub mod effects;
+pub mod entities;
 pub mod fabric;
 pub mod forge;
 
@@ -268,5 +270,52 @@ pub fn scan_classes_for_content(classes: &[ClassFile], meta: &ModMetadata) -> Co
             forge::scan_forge_classes(classes, meta, &mut ir);
         }
     }
+    entities::scan_entities(classes, meta, &mut ir);
+    effects::scan_effects(classes, meta, &mut ir);
+
+    // Scan classes for item actions and block triggers
+    for class in classes {
+        let class_name = class.class_name();
+        let simple_name = class_name
+            .rsplit('/')
+            .next()
+            .unwrap_or(class_name)
+            .to_lowercase();
+
+        // Check if class belongs to an item
+        let mut new_item_actions = Vec::new();
+        for item in &mut ir.items {
+            let item_sub = item.id.split_once(':').map(|(_, s)| s).unwrap_or(&item.id);
+            if class_name.to_lowercase().contains(item_sub) || item_sub.contains(&simple_name) {
+                let actions =
+                    crate::bytecode::action_extractor::extract_item_actions(class, &item.id);
+                for action in actions {
+                    item.actions.push(action.clone());
+                    new_item_actions.push(action);
+                }
+            }
+        }
+        for action in new_item_actions {
+            ir.add_item_action(action);
+        }
+
+        // Check if class belongs to a block
+        let mut new_block_triggers = Vec::new();
+        for block in &mut ir.blocks {
+            let block_sub = block.id.split_once(':').map(|(_, s)| s).unwrap_or(&block.id);
+            if class_name.to_lowercase().contains(block_sub) || block_sub.contains(&simple_name) {
+                let triggers =
+                    crate::bytecode::action_extractor::extract_block_triggers(class, &block.id);
+                for trigger in triggers {
+                    block.triggers.push(trigger.clone());
+                    new_block_triggers.push(trigger);
+                }
+            }
+        }
+        for trigger in new_block_triggers {
+            ir.add_block_trigger(trigger);
+        }
+    }
+
     ir
 }

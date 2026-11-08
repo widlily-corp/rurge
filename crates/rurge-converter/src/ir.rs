@@ -451,6 +451,78 @@ impl CreativeTabDef {
     }
 }
 
+/// Declarative entity type definition extracted from mod entity registrations.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EntityTypeDef {
+    /// Fully qualified entity ID, e.g. "ebwizardry:magic_missile" or "ebwizardry:wizard".
+    pub id: String,
+    /// Template categorization: projectile, living, item, tnt, interaction.
+    pub template: String,
+    /// Hitbox width in blocks (e.g. 0.5 for projectiles, 0.6 for humanoids/mobs).
+    pub width: f32,
+    /// Hitbox height in blocks (e.g. 0.5 for projectiles, 1.8 for humanoids/mobs).
+    pub height: f32,
+    /// Client tracking range in blocks (typically 64 or 80).
+    pub tracking_range: u32,
+}
+
+impl EntityTypeDef {
+    /// Creates a new `EntityTypeDef` with default dimensions and tracking range based on template.
+    pub fn new(id: impl Into<String>, template: impl Into<String>) -> Self {
+        let template_str = template.into();
+        let (width, height, tracking_range) = match template_str.as_str() {
+            "projectile" => (0.5, 0.5, 64),
+            "living" => (0.6, 1.8, 80),
+            "item" => (0.25, 0.25, 64),
+            "tnt" => (0.98, 0.98, 64),
+            "interaction" => (1.0, 1.0, 64),
+            _ => (0.6, 1.8, 64),
+        };
+        Self {
+            id: id.into(),
+            template: template_str,
+            width,
+            height,
+            tracking_range,
+        }
+    }
+
+    /// Sets custom hitbox dimensions.
+    pub fn with_dimensions(mut self, width: f32, height: f32) -> Self {
+        self.width = width;
+        self.height = height;
+        self
+    }
+
+    /// Sets custom client tracking range.
+    pub fn with_tracking_range(mut self, tracking_range: u32) -> Self {
+        self.tracking_range = tracking_range;
+        self
+    }
+}
+
+/// Declarative status or mob effect definition.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MobEffectDef {
+    /// Fully qualified effect ID, e.g. "ebwizardry:frost" or "ebwizardry:fireskin".
+    pub id: String,
+    /// Effect category: beneficial, harmful, neutral.
+    pub category: String,
+    /// RGB color representation of the effect (e.g. 0x3399FF).
+    pub color: u32,
+}
+
+impl MobEffectDef {
+    /// Creates a new `MobEffectDef`.
+    pub fn new(id: impl Into<String>, category: impl Into<String>, color: u32) -> Self {
+        Self {
+            id: id.into(),
+            category: category.into(),
+            color,
+        }
+    }
+}
+
 /// Unified content intermediate representation holding all extracted assets and registrations.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContentIR {
@@ -465,6 +537,10 @@ pub struct ContentIR {
     pub block_triggers: Vec<BlockTriggerDef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub creative_tabs: Vec<CreativeTabDef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entity_types: Vec<EntityTypeDef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mob_effects: Vec<MobEffectDef>,
 }
 
 impl ContentIR {
@@ -479,6 +555,8 @@ impl ContentIR {
             item_actions: Vec::new(),
             block_triggers: Vec::new(),
             creative_tabs: Vec::new(),
+            entity_types: Vec::new(),
+            mob_effects: Vec::new(),
         }
     }
 
@@ -488,6 +566,24 @@ impl ContentIR {
             *existing = tab;
         } else {
             self.creative_tabs.push(tab);
+        }
+    }
+
+    /// Adds or updates an entity type definition by ID.
+    pub fn add_entity_type(&mut self, entity_type: EntityTypeDef) {
+        if let Some(existing) = self.entity_types.iter_mut().find(|e| e.id == entity_type.id) {
+            *existing = entity_type;
+        } else {
+            self.entity_types.push(entity_type);
+        }
+    }
+
+    /// Adds or updates a mob effect definition by ID.
+    pub fn add_mob_effect(&mut self, effect: MobEffectDef) {
+        if let Some(existing) = self.mob_effects.iter_mut().find(|e| e.id == effect.id) {
+            *existing = effect;
+        } else {
+            self.mob_effects.push(effect);
         }
     }
 
@@ -532,5 +628,15 @@ impl ContentIR {
     /// Looks up an item definition by ID.
     pub fn get_item(&self, id: &str) -> Option<&ItemDef> {
         self.items.iter().find(|i| i.id == id)
+    }
+
+    /// Looks up an entity type definition by ID.
+    pub fn get_entity_type(&self, id: &str) -> Option<&EntityTypeDef> {
+        self.entity_types.iter().find(|e| e.id == id)
+    }
+
+    /// Looks up a mob effect definition by ID.
+    pub fn get_mob_effect(&self, id: &str) -> Option<&MobEffectDef> {
+        self.mob_effects.iter().find(|e| e.id == id)
     }
 }

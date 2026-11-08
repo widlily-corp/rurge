@@ -16,6 +16,7 @@ pub mod manifest;
 pub mod packager;
 pub mod patterns;
 pub mod schema;
+pub mod templates;
 
 pub use assets::{
     extract_assets_from_zip, parse_lang_json, parse_legacy_lang, parse_recipe_json,
@@ -41,6 +42,7 @@ pub use schema::{
     ContentSchema, SchemaBlock, SchemaFoodStats, SchemaItem, SchemaRecipe, SchemaRecipeResult,
     SchemaToolStats,
 };
+pub use templates::{BlockTemplateInfo, ItemTemplateInfo, TemplateEngine};
 
 /// Summary information returned upon successful conversion of a JAR mod to .rmod.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

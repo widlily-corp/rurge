@@ -836,3 +836,86 @@ fn test_packager_partitions_wizardry_creative_tabs() {
     }
 }
 
+#[test]
+fn test_packager_writes_smart_templates_entities_and_effects() {
+    use rurge_converter::ir::{EntityTypeDef, MobEffectDef};
+    use rurge_converter::{build_rmod_package, ExtractedAssets};
+    use std::io::Read;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let mut ir = ContentIR::new(ModMetadata {
+        id: "magic_rpg".into(),
+        name: "Magic RPG".into(),
+        version: "1.0.0".into(),
+        authors: vec!["Author".into()],
+        description: "Test mod".into(),
+        loader: ModLoader::NeoForge,
+    });
+
+    ir.add_block(BlockDef::new("magic_rpg:runic_stone"));
+    ir.add_item(ItemDef::new("magic_rpg:crystal_blade"));
+    ir.add_item(ItemDef::new("magic_rpg:sorcerer_hat"));
+    ir.add_item(ItemDef::new("magic_rpg:magic_orb"));
+
+    ir.entity_types.push(EntityTypeDef::new("magic_rpg:magic_projectile", "projectile"));
+    ir.mob_effects.push(MobEffectDef::new("magic_rpg:arcane_burn", "harmful", 0xFF4400));
+
+    let assets = ExtractedAssets::default();
+    let compat = audit_compatibility(ModLoader::NeoForge, &[], &[], &ir);
+    let rmod_path = temp_dir.path().join("magic_rpg.rmod");
+    build_rmod_package(&ir, &assets, &compat, &rmod_path).unwrap();
+
+    let file = std::fs::File::open(&rmod_path).unwrap();
+    let mut zip = zip::ZipArchive::new(file).unwrap();
+
+    // 1. Verify smart block template
+    let block_str = {
+        let mut entry = zip.by_name("data/magic_rpg/horizon/block/runic_stone.json").unwrap();
+        let mut s = String::new();
+        entry.read_to_string(&mut s).unwrap();
+        s
+    };
+    assert!(block_str.contains("\"template\":"));
+    assert!(block_str.contains("\"properties\":"));
+
+    // 2. Verify smart item template for blade (sword template, stack 1)
+    let item_str = {
+        let mut entry = zip.by_name("data/magic_rpg/horizon/item/crystal_blade.json").unwrap();
+        let mut s = String::new();
+        entry.read_to_string(&mut s).unwrap();
+        s
+    };
+    assert!(item_str.contains("sword"));
+    assert!(item_str.contains("\"max_stack_size\": 1"));
+
+    // 3. Verify smart item template for armor (helmet template, stack 1)
+    let hat_str = {
+        let mut entry = zip.by_name("data/magic_rpg/horizon/item/sorcerer_hat.json").unwrap();
+        let mut s = String::new();
+        entry.read_to_string(&mut s).unwrap();
+        s
+    };
+    assert!(hat_str.contains("helmet"));
+    assert!(hat_str.contains("\"max_stack_size\": 1"));
+
+    // 4. Verify entity_type
+    let entity_str = {
+        let mut entry = zip.by_name("data/magic_rpg/horizon/entity_type/magic_projectile.json").unwrap();
+        let mut s = String::new();
+        entry.read_to_string(&mut s).unwrap();
+        s
+    };
+    assert!(entity_str.contains("\"template\": \"minecraft:snowball\""));
+    assert!(entity_str.contains("\"damage\": 4.0"));
+
+    // 5. Verify mob_effect
+    let effect_str = {
+        let mut entry = zip.by_name("data/magic_rpg/horizon/mob_effect/arcane_burn.json").unwrap();
+        let mut s = String::new();
+        entry.read_to_string(&mut s).unwrap();
+        s
+    };
+    assert!(effect_str.contains("\"category\": \"harmful\""));
+    assert!(effect_str.contains("\"color\": 16729088")); // 0xFF4400 in decimal
+}
+

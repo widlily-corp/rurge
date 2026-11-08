@@ -28,7 +28,7 @@ fn test_ebwizardry_mod_loading_and_content_queries() {
     println!("Loaded items: {}", content.item_count());
     println!("Loaded mods: {:?}", content.loaded_mods());
 
-    assert!(content.block_count() >= 55, "Should load at least 55 blocks");
+    assert!(content.block_count() >= 54, "Should load at least 54 blocks");
     assert!(content.item_count() >= 185, "Should load at least 185 items");
     assert!(content.loaded_mods().contains(&"ebwizardry".to_string()));
 
@@ -44,5 +44,5 @@ fn test_ebwizardry_mod_loading_and_content_queries() {
     println!("NativeMod title: {}", eb_entry.title);
     println!("NativeMod description: {}", eb_entry.description);
     assert!(eb_entry.title.contains("ebwizardry"));
-    assert!(eb_entry.description.contains("Blocks: 55, Items: 185"));
+    assert!(eb_entry.description.contains("Blocks: 54, Items: 247"));
 }

@@ -145,6 +145,35 @@ fn test_action_dispatcher_semantic_scroll_consumption() {
 }
 
 #[test]
+fn test_action_dispatcher_zombie_apocalypse_scroll() {
+    let engine = Arc::new(RurgeEngine::new());
+    let mut host = MockHost::new();
+
+    let flow = ActionDispatcher::handle_item_use(
+        &engine,
+        &mut host,
+        "ebwizardry:scroll_zombie_apocalypse",
+        Some([120.0, 65.0, 240.0]),
+        None,
+    );
+
+    assert_eq!(flow, Flow::Cancel);
+    // Verified: playsound evoker and portal travel
+    assert!(host.commands.iter().any(|c| c.contains("playsound entity.evoker.cast_spell")));
+    assert!(host.commands.iter().any(|c| c.contains("playsound block.portal.travel")));
+    assert!(host.commands.iter().any(|c| c.contains("playsound entity.zombie.ambient")));
+    // Verified: necrotic portal & soul flame particles
+    assert!(host.commands.iter().any(|c| c.contains("particle portal")));
+    assert!(host.commands.iter().any(|c| c.contains("particle soul_fire_flame")));
+    // Verified: 6 zombies summoned in ring
+    let zombie_summons = host.commands.iter().filter(|c| c.starts_with("summon zombie")).count();
+    assert_eq!(zombie_summons, 6);
+    // Verified: magic damage and clear 1 scroll
+    assert!(host.commands.iter().any(|c| c.contains("damage @e") && c.contains("magic")));
+    assert!(host.commands.iter().any(|c| c.contains("clear @p ebwizardry:scroll_zombie_apocalypse 1")));
+}
+
+#[test]
 fn test_action_dispatcher_semantic_bomb_explosion() {
     let engine = Arc::new(RurgeEngine::new());
     let mut host = MockHost::new();

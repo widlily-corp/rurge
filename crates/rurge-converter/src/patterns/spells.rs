@@ -105,6 +105,14 @@ pub fn scan_spells(classes: &[ClassFile], meta: &ModMetadata, ir: &mut ContentIR
             custom_data.insert("tier".to_string(), serde_json::json!(tier_name.to_lowercase()));
             book.components.insert("minecraft:custom_data".to_string(), serde_json::Value::Object(custom_data));
 
+            // Give spell books an active channeling action so the player can cast from books as well
+            let book_effects = synthesize_spell_actions(modid, &spell, false);
+            let book_action = ItemActionDef::new(ItemTrigger::RightClick, book_effects)
+                .with_item_id(book_id.clone())
+                .with_cooldown(30);
+            book.actions.push(book_action.clone());
+            new_actions.push(book_action);
+
             new_items.push(book);
             new_lang.push((format!("item.{modid}.spell_book_{spell}"), format!("Spell Book: {spell_name}")));
         }
@@ -135,50 +143,9 @@ pub fn scan_spells(classes: &[ClassFile], meta: &ModMetadata, ir: &mut ContentIR
             custom_data.insert("tier".to_string(), serde_json::json!(tier_name.to_lowercase()));
             scroll.components.insert("minecraft:custom_data".to_string(), serde_json::Value::Object(custom_data));
 
-            // Build spell action
-            let mut effects = Vec::new();
-
-            // Sound
-            effects.push(ActionEffect::PlaySound {
-                sound: format!("{modid}:item.wand.chargeup"),
-                volume: 1.0,
-                pitch: 1.0,
-            });
-
-            // Projectile entity or effect or explosion
-            let entity_id = format!("{modid}:{spell}");
-            let has_entity = ir.entity_types.iter().any(|e| e.id == entity_id);
-            let has_effect = ir.mob_effects.iter().any(|e| e.id == entity_id);
-
-            if has_entity {
-                effects.push(ActionEffect::SpawnEntity {
-                    entity_type: entity_id,
-                    count: 1,
-                });
-            } else if has_effect {
-                effects.push(ActionEffect::ApplyEffect {
-                    effect: entity_id,
-                    duration_ticks: 200,
-                    amplifier: 1,
-                });
-            } else if spell.contains("bomb") || spell.contains("meteor") || spell.contains("detonate") {
-                effects.push(ActionEffect::Explode {
-                    power: 3.5,
-                    causes_fire: false,
-                    break_blocks: true,
-                });
-            } else {
-                effects.push(ActionEffect::PlaySound {
-                    sound: format!("{modid}:item.wand.blast"),
-                    volume: 0.8,
-                    pitch: 1.2,
-                });
-            }
-
-            // Consume scroll on use
-            effects.push(ActionEffect::ConsumeItem { count: 1 });
-
-            let action = ItemActionDef::new(ItemTrigger::RightClick, effects)
+            // Build authentic spell actions
+            let scroll_effects = synthesize_spell_actions(modid, &spell, true);
+            let action = ItemActionDef::new(ItemTrigger::RightClick, scroll_effects)
                 .with_item_id(scroll_id.clone())
                 .with_cooldown(20);
 
@@ -365,4 +332,411 @@ fn enrich_existing_content(ir: &mut ContentIR) {
             }
         }
     }
+}
+
+/// Synthesizes authentic declarative ActionEffects for any Electroblob's Wizardry spell.
+pub fn synthesize_spell_actions(modid: &str, spell: &str, consume_on_use: bool) -> Vec<ActionEffect> {
+    let lower = spell.to_ascii_lowercase();
+    let mut effects = Vec::new();
+
+    // 1. Necromancy & Minions
+    if lower.contains("zombie_apocalypse") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.evoker.cast_spell".to_string(),
+            volume: 1.0,
+            pitch: 0.8,
+        });
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.zombie.ambient".to_string(),
+            volume: 1.2,
+            pitch: 0.8,
+        });
+        effects.push(ActionEffect::SpawnEntity {
+            entity_type: "zombie".to_string(),
+            count: 6,
+        });
+        effects.push(ActionEffect::Damage {
+            amount: 8.0,
+            damage_type: Some("magic".to_string()),
+        });
+    } else if lower.contains("summon_zombie") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.zombie.ambient".to_string(),
+            volume: 1.0,
+            pitch: 1.0,
+        });
+        effects.push(ActionEffect::SpawnEntity {
+            entity_type: "zombie".to_string(),
+            count: 1,
+        });
+    } else if lower.contains("summon_skeleton_legion") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.skeleton.ambient".to_string(),
+            volume: 1.0,
+            pitch: 0.9,
+        });
+        effects.push(ActionEffect::SpawnEntity {
+            entity_type: "skeleton".to_string(),
+            count: 4,
+        });
+    } else if lower.contains("summon_skeleton") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.skeleton.ambient".to_string(),
+            volume: 1.0,
+            pitch: 1.0,
+        });
+        effects.push(ActionEffect::SpawnEntity {
+            entity_type: "skeleton".to_string(),
+            count: 1,
+        });
+    } else if lower.contains("summon_wither_skeleton") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.wither_skeleton.ambient".to_string(),
+            volume: 1.0,
+            pitch: 0.9,
+        });
+        effects.push(ActionEffect::SpawnEntity {
+            entity_type: "wither_skeleton".to_string(),
+            count: 1,
+        });
+    } else if lower.contains("summon_blaze") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.blaze.ambient".to_string(),
+            volume: 1.0,
+            pitch: 1.0,
+        });
+        effects.push(ActionEffect::SpawnEntity {
+            entity_type: "blaze".to_string(),
+            count: 1,
+        });
+    } else if lower.contains("summon_snow_golem") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.snow_golem.ambient".to_string(),
+            volume: 1.0,
+            pitch: 1.0,
+        });
+        effects.push(ActionEffect::SpawnEntity {
+            entity_type: "snow_golem".to_string(),
+            count: 1,
+        });
+    } else if lower.contains("summon_ice_giant") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.iron_golem.ambient".to_string(),
+            volume: 1.0,
+            pitch: 0.8,
+        });
+        effects.push(ActionEffect::SpawnEntity {
+            entity_type: "iron_golem".to_string(),
+            count: 1,
+        });
+    } else if lower.contains("spider_swarm") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.spider.ambient".to_string(),
+            volume: 1.0,
+            pitch: 1.2,
+        });
+        effects.push(ActionEffect::SpawnEntity {
+            entity_type: "cave_spider".to_string(),
+            count: 4,
+        });
+    } else if lower.contains("silverfish_swarm") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.silverfish.ambient".to_string(),
+            volume: 1.0,
+            pitch: 1.0,
+        });
+        effects.push(ActionEffect::SpawnEntity {
+            entity_type: "silverfish".to_string(),
+            count: 5,
+        });
+    } else if lower.contains("vex_swarm") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.vex.charge".to_string(),
+            volume: 1.0,
+            pitch: 1.0,
+        });
+        effects.push(ActionEffect::SpawnEntity {
+            entity_type: "vex".to_string(),
+            count: 3,
+        });
+    } else if lower.contains("slime") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.slime.squish".to_string(),
+            volume: 1.0,
+            pitch: 1.0,
+        });
+        effects.push(ActionEffect::SpawnEntity {
+            entity_type: "slime".to_string(),
+            count: 2,
+        });
+    }
+    // 2. Pyromancy & Explosions
+    else if lower.contains("fireball") || lower.contains("dragon_fireball") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.blaze.shoot".to_string(),
+            volume: 1.0,
+            pitch: 1.0,
+        });
+        effects.push(ActionEffect::SpawnEntity {
+            entity_type: "small_fireball".to_string(),
+            count: 1,
+        });
+        effects.push(ActionEffect::Explode {
+            power: 3.5,
+            causes_fire: true,
+            break_blocks: false,
+        });
+    } else if lower.contains("firebomb") || lower.contains("meteor") || lower.contains("detonate") || lower.contains("combustion_rune") || lower.contains("firestorm") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.generic.explode".to_string(),
+            volume: 1.5,
+            pitch: 1.0,
+        });
+        effects.push(ActionEffect::Explode {
+            power: 4.5,
+            causes_fire: true,
+            break_blocks: true,
+        });
+    } else if lower.contains("fire_breath") || lower.contains("flame_ray") || lower.contains("firebolt") || lower.contains("ignite") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "item.firecharge.use".to_string(),
+            volume: 1.0,
+            pitch: 1.2,
+        });
+        effects.push(ActionEffect::Damage {
+            amount: 8.0,
+            damage_type: Some("in_fire".to_string()),
+        });
+    }
+    // 3. Electromancy
+    else if lower.contains("lightning_bolt") || lower.contains("thunderbolt") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.lightning_bolt.thunder".to_string(),
+            volume: 1.5,
+            pitch: 1.0,
+        });
+        effects.push(ActionEffect::SpawnEntity {
+            entity_type: "lightning_bolt".to_string(),
+            count: 1,
+        });
+        effects.push(ActionEffect::Damage {
+            amount: 10.0,
+            damage_type: Some("lightning_bolt".to_string()),
+        });
+    } else if lower.contains("chain_lightning") || lower.contains("arc") || lower.contains("homing_spark") || lower.contains("spark") || lower.contains("lightning_pulse") || lower.contains("lightning_railgun") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.lightning_bolt.impact".to_string(),
+            volume: 1.0,
+            pitch: 1.4,
+        });
+        effects.push(ActionEffect::Damage {
+            amount: 9.0,
+            damage_type: Some("lightning_bolt".to_string()),
+        });
+    }
+    // 4. Cryomancy
+    else if lower.contains("freeze") || lower.contains("blizzard") || lower.contains("hailstorm") || lower.contains("ice_age") || lower.contains("glacial_oblivion") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "block.powder_snow.break".to_string(),
+            volume: 1.0,
+            pitch: 0.8,
+        });
+        effects.push(ActionEffect::ApplyEffect {
+            effect: "slowness".to_string(),
+            duration_ticks: 240,
+            amplifier: 4,
+        });
+        effects.push(ActionEffect::Damage {
+            amount: 12.0,
+            damage_type: Some("freeze".to_string()),
+        });
+    } else if lower.contains("ice_shard") || lower.contains("ice_lance") || lower.contains("ice_ball") || lower.contains("ice_charge") || lower.contains("frost_ray") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "block.glass.break".to_string(),
+            volume: 1.0,
+            pitch: 1.5,
+        });
+        effects.push(ActionEffect::ApplyEffect {
+            effect: "slowness".to_string(),
+            duration_ticks: 140,
+            amplifier: 2,
+        });
+        effects.push(ActionEffect::Damage {
+            amount: 8.0,
+            damage_type: Some("freeze".to_string()),
+        });
+    }
+    // 5. Healing & Restoration
+    else if lower.contains("heal") || lower.contains("vitality") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.player.levelup".to_string(),
+            volume: 1.0,
+            pitch: 1.5,
+        });
+        effects.push(ActionEffect::Heal { amount: 10.0 });
+    } else if lower.contains("cure_effects") || lower.contains("remove_curse") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.totem.use".to_string(),
+            volume: 0.8,
+            pitch: 1.5,
+        });
+        effects.push(ActionEffect::ApplyEffect {
+            effect: "regeneration".to_string(),
+            duration_ticks: 120,
+            amplifier: 1,
+        });
+    } else if lower.contains("satiety") || lower.contains("replenish_hunger") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.player.burp".to_string(),
+            volume: 1.0,
+            pitch: 1.0,
+        });
+        effects.push(ActionEffect::ApplyEffect {
+            effect: "saturation".to_string(),
+            duration_ticks: 60,
+            amplifier: 1,
+        });
+    }
+    // 6. Sorcery & Teleportation
+    else if lower.contains("blink") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.enderman.teleport".to_string(),
+            volume: 1.0,
+            pitch: 1.0,
+        });
+        effects.push(ActionEffect::Teleport {
+            offset_x: 0.0,
+            offset_y: 0.0,
+            offset_z: 8.0,
+        });
+    } else if lower.contains("phase_step") || lower.contains("teleport") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.enderman.teleport".to_string(),
+            volume: 1.0,
+            pitch: 1.2,
+        });
+        effects.push(ActionEffect::Teleport {
+            offset_x: 0.0,
+            offset_y: 0.0,
+            offset_z: 16.0,
+        });
+    } else if lower.contains("flight") || lower.contains("better_flight") || lower.contains("levitation") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.phantom.flap".to_string(),
+            volume: 1.0,
+            pitch: 1.2,
+        });
+        effects.push(ActionEffect::ApplyEffect {
+            effect: "levitation".to_string(),
+            duration_ticks: 160,
+            amplifier: 1,
+        });
+        effects.push(ActionEffect::ApplyEffect {
+            effect: "slow_falling".to_string(),
+            duration_ticks: 240,
+            amplifier: 1,
+        });
+    } else if lower.contains("agility") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.horse.gallop".to_string(),
+            volume: 0.8,
+            pitch: 1.5,
+        });
+        effects.push(ActionEffect::ApplyEffect {
+            effect: "speed".to_string(),
+            duration_ticks: 600,
+            amplifier: 2,
+        });
+    } else if lower.contains("invisibility") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "block.beacon.ambient".to_string(),
+            volume: 0.8,
+            pitch: 1.8,
+        });
+        effects.push(ActionEffect::ApplyEffect {
+            effect: "invisibility".to_string(),
+            duration_ticks: 600,
+            amplifier: 1,
+        });
+    } else if lower.contains("fire_resistance") || lower.contains("fire_skin") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "item.firecharge.use".to_string(),
+            volume: 1.0,
+            pitch: 1.0,
+        });
+        effects.push(ActionEffect::ApplyEffect {
+            effect: "fire_resistance".to_string(),
+            duration_ticks: 1200,
+            amplifier: 1,
+        });
+    } else if lower.contains("oakflesh") || lower.contains("ironflesh") || lower.contains("diamondflesh") || lower.contains("ward") || lower.contains("forcefield") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "item.armor.equip_diamond".to_string(),
+            volume: 1.0,
+            pitch: 1.0,
+        });
+        effects.push(ActionEffect::ApplyEffect {
+            effect: "resistance".to_string(),
+            duration_ticks: 600,
+            amplifier: 2,
+        });
+        effects.push(ActionEffect::ApplyEffect {
+            effect: "absorption".to_string(),
+            duration_ticks: 600,
+            amplifier: 2,
+        });
+    } else if lower.contains("decay") || lower.contains("wither") || lower.contains("curse_of_undeath") || lower.contains("curse_of_enfeeblement") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.wither.ambient".to_string(),
+            volume: 0.8,
+            pitch: 1.2,
+        });
+        effects.push(ActionEffect::ApplyEffect {
+            effect: "wither".to_string(),
+            duration_ticks: 200,
+            amplifier: 1,
+        });
+        effects.push(ActionEffect::Damage {
+            amount: 8.0,
+            damage_type: Some("wither".to_string()),
+        });
+    } else if lower.contains("fangs") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.evoker_fangs.attack".to_string(),
+            volume: 1.0,
+            pitch: 1.0,
+        });
+        effects.push(ActionEffect::SpawnEntity {
+            entity_type: "evoker_fangs".to_string(),
+            count: 3,
+        });
+    } else if lower.contains("boulder") || lower.contains("tornado") || lower.contains("whirlwind") || lower.contains("earth_tremor") || lower.contains("tectonic_shatter") {
+        effects.push(ActionEffect::PlaySound {
+            sound: "entity.ravager.roar".to_string(),
+            volume: 1.0,
+            pitch: 0.9,
+        });
+        effects.push(ActionEffect::Explode {
+            power: 3.5,
+            causes_fire: false,
+            break_blocks: false,
+        });
+    } else {
+        // Universal Arcane fallback
+        effects.push(ActionEffect::PlaySound {
+            sound: format!("{modid}:item.wand.blast"),
+            volume: 0.8,
+            pitch: 1.2,
+        });
+        effects.push(ActionEffect::Damage {
+            amount: 7.0,
+            damage_type: Some("magic".to_string()),
+        });
+    }
+
+    if consume_on_use {
+        effects.push(ActionEffect::ConsumeItem { count: 1 });
+    }
+
+    effects
 }

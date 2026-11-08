@@ -7,6 +7,20 @@ use rurge_runtime::engine::RurgeEngine;
 use std::sync::Arc;
 
 static WAND_MANA: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1400);
+static WAND_ACTIVE_SPELL_IDX: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+const WIZARDRY_SPELL_LIST: &[(&str, &str, i64)] = &[
+    ("zombie_apocalypse", "§5☠ Zombie Apocalypse", 150),
+    ("fireball", "§c🔥 Fireball", 35),
+    ("lightning_bolt", "§e⚡ Lightning Bolt", 40),
+    ("ice_shard", "§b❄ Ice Shard", 25),
+    ("heal", "§a💖 Divine Heal", 30),
+    ("blink", "§d✨ Blink", 20),
+    ("summon_zombie", "§2🧟 Summon Zombie", 40),
+    ("tornado", "§7🌪 Tornado", 50),
+    ("fangs", "§8🐊 Evoker Fangs", 35),
+    ("flight", "§f🕊 Arcane Flight", 45),
+];
 
 pub struct ActionDispatcher;
 
@@ -17,6 +31,16 @@ impl ActionDispatcher {
 
     pub fn set_wand_mana(val: i64) {
         WAND_MANA.store(val, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn get_active_wand_spell() -> &'static (&'static str, &'static str, i64) {
+        let idx = WAND_ACTIVE_SPELL_IDX.load(std::sync::atomic::Ordering::Relaxed);
+        &WIZARDRY_SPELL_LIST[idx % WIZARDRY_SPELL_LIST.len()]
+    }
+
+    pub fn cycle_wand_spell() -> &'static (&'static str, &'static str, i64) {
+        let next = WAND_ACTIVE_SPELL_IDX.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        &WIZARDRY_SPELL_LIST[next % WIZARDRY_SPELL_LIST.len()]
     }
 
     /// Resolves the acting player, with automatic singleplayer fallback to the first server player.
@@ -42,8 +66,6 @@ impl ActionDispatcher {
 
         log::info!("[ActionDispatcher] Player used mod item: '{}'", trimmed_id);
 
-        // 1. Check registered declarative actions in ContentSchemaExecutor
-        let registered_actions = engine.content().get_item_actions(trimmed_id);
         let player = Self::resolve_player(host);
 
         // Compute player view vector and coordinates as f64
@@ -70,6 +92,9 @@ impl ActionDispatcher {
             eye_pos[1] + dir_y * 1.5,
             eye_pos[2] + dir_z * 1.5,
         ];
+
+        // 1. Check registered declarative actions in ContentSchemaExecutor
+        let registered_actions = engine.content().get_item_actions(trimmed_id);
 
         // 2. If explicit actions exist, dispatch them
         if !registered_actions.is_empty() {
@@ -192,17 +217,30 @@ impl ActionDispatcher {
                         host.run_command("playsound entity.blaze.shoot player @a ~ ~ ~ 0.8 1.2");
                     }
                 }
-                ActionEffect::SpawnEntity { entity_type, count: _ } => {
-                    let vx = direction[0] * 1.8;
-                    let vy = direction[1] * 1.8;
-                    let vz = direction[2] * 1.8;
-                    let cmd = format!(
-                        "summon {entity_type} {:.2} {:.2} {:.2} {{Motion:[{:.3},{:.3},{:.3}]}}",
-                        spawn_pos[0], spawn_pos[1], spawn_pos[2], vx, vy, vz
-                    );
-                    let ok = host.run_command(&cmd);
-                    if !ok {
-                        // Visual projectile raycast with particle effects
+                ActionEffect::SpawnEntity { entity_type, count } => {
+                    let c = (*count).max(1);
+                    let base_target = target_pos.unwrap_or(spawn_pos);
+                    let mut any_spawned = false;
+                    for i in 0..c {
+                        let offset_x = if c > 1 { ((i as f64 * (std::f64::consts::TAU / c as f64)).cos()) * 2.5 } else { 0.0 };
+                        let offset_z = if c > 1 { ((i as f64 * (std::f64::consts::TAU / c as f64)).sin()) * 2.5 } else { 0.0 };
+                        let sx = base_target[0] + offset_x;
+                        let sy = base_target[1];
+                        let sz = base_target[2] + offset_z;
+
+                        let resolved = resolve_entity_command(entity_type);
+                        let cmd = format!("summon {resolved} {:.2} {:.2} {:.2}", sx, sy, sz);
+                        if host.run_command(&cmd) {
+                            any_spawned = true;
+                        }
+                    }
+                    if any_spawned {
+                        host.run_command(&format!(
+                            "particle portal {:.2} {:.2} {:.2} 1.2 0.8 1.2 0.1 30",
+                            base_target[0], base_target[1] + 1.0, base_target[2]
+                        ));
+                    } else {
+                        // Visual projectile raycast with particle effects fallback
                         Self::render_particle_beam(host, eye_pos, direction, 14.0, "flame");
                         let impact = [
                             eye_pos[0] + direction[0] * 12.0,
@@ -278,7 +316,11 @@ impl ActionDispatcher {
                     }
                 }
                 ActionEffect::Teleport { offset_x, offset_y, offset_z } => {
-                    let dest = [eye_pos[0] + offset_x, eye_pos[1] + offset_y, eye_pos[2] + offset_z];
+                    let dest = if let Some(tpos) = target_pos {
+                        [tpos[0], tpos[1] + 1.0, tpos[2]]
+                    } else {
+                        [eye_pos[0] + offset_x, eye_pos[1] + offset_y, eye_pos[2] + offset_z]
+                    };
                     host.run_command(&format!("tp @p {:.2} {:.2} {:.2}", dest[0], dest[1], dest[2]));
                     host.run_command("playsound entity.enderman.teleport player @p ~ ~ ~ 1.0 1.0");
                     host.run_command("particle portal ~ ~1.0 ~ 0.5 0.5 0.5 0.1 20");
@@ -340,7 +382,7 @@ impl ActionDispatcher {
                 "snowflake"
             } else if lower.contains("lightning") {
                 "electric_spark"
-            } else if lower.contains("necromancy") {
+            } else if lower.contains("necromancy") || lower.contains("zombie") {
                 "soul_fire_flame"
             } else if lower.contains("healing") {
                 "heart"
@@ -411,12 +453,50 @@ impl ActionDispatcher {
         if lower.contains("scroll") {
             host.run_command("playsound item.book.page_turn player @a ~ ~ ~ 1.0 1.0");
             host.run_command("playsound entity.evoker.cast_spell player @a ~ ~ ~ 1.0 1.2");
-            Self::render_particle_beam(host, eye_pos, direction, 14.0, "portal");
-            let impact = [
+
+            let impact = target_pos.unwrap_or([
                 eye_pos[0] + direction[0] * 12.0,
                 eye_pos[1] + direction[1] * 12.0,
                 eye_pos[2] + direction[2] * 12.0,
-            ];
+            ]);
+
+            // Specialized spell mechanics if scroll is named
+            if lower.contains("zombie_apocalypse") {
+                host.run_command(&format!(
+                    "playsound block.portal.travel player @a {:.2} {:.2} {:.2} 1.0 0.7",
+                    impact[0], impact[1], impact[2]
+                ));
+                host.run_command(&format!(
+                    "playsound entity.zombie.ambient player @a {:.2} {:.2} {:.2} 1.2 0.8",
+                    impact[0], impact[1], impact[2]
+                ));
+                host.run_command(&format!(
+                    "particle portal {:.2} {:.2} {:.2} 2.0 1.0 2.0 0.2 80",
+                    impact[0], impact[1] + 1.0, impact[2]
+                ));
+                host.run_command(&format!(
+                    "particle soul_fire_flame {:.2} {:.2} {:.2} 1.5 0.5 1.5 0.05 40",
+                    impact[0], impact[1] + 0.5, impact[2]
+                ));
+                for i in 0..6 {
+                    let angle = i as f64 * (std::f64::consts::TAU / 6.0);
+                    let zx = impact[0] + angle.cos() * 2.8;
+                    let zz = impact[2] + angle.sin() * 2.8;
+                    let zy = impact[1];
+                    host.run_command(&format!("summon zombie {:.2} {:.2} {:.2}", zx, zy, zz));
+                }
+            } else if lower.contains("summon_zombie") {
+                host.run_command(&format!("summon zombie {:.2} {:.2} {:.2}", impact[0], impact[1], impact[2]));
+                host.run_command(&format!("particle portal {:.2} {:.2} {:.2} 0.5 1.0 0.5 0.1 30", impact[0], impact[1] + 1.0, impact[2]));
+                host.run_command(&format!("playsound entity.zombie.ambient player @a {:.2} {:.2} {:.2} 1.0 1.0", impact[0], impact[1], impact[2]));
+            } else if lower.contains("lightning") {
+                host.run_command(&format!("summon lightning_bolt {:.2} {:.2} {:.2}", impact[0], impact[1], impact[2]));
+            } else if lower.contains("fireball") {
+                host.run_command(&format!("particle explosion_emitter {:.2} {:.2} {:.2} 0 0 0 0 1", impact[0], impact[1], impact[2]));
+                host.run_command(&format!("playsound entity.generic.explode block @a {:.2} {:.2} {:.2} 1.5 1.0", impact[0], impact[1], impact[2]));
+            }
+
+            Self::render_particle_beam(host, eye_pos, direction, 14.0, "portal");
             host.run_command(&format!(
                 "damage @e[x={:.2},y={:.2},z={:.2},distance=..4,type=!player] 9 magic",
                 impact[0], impact[1], impact[2]
@@ -431,7 +511,7 @@ impl ActionDispatcher {
             return true;
         }
 
-        // 4. Bombs
+        // 2. Bombs
         if lower.contains("bomb") {
             let target = target_pos.unwrap_or([
                 eye_pos[0] + direction[0] * 8.0,
@@ -454,7 +534,7 @@ impl ActionDispatcher {
             return true;
         }
 
-        // 5. Flasks and Elixirs
+        // 3. Flasks and Elixirs
         if lower.contains("flask") || lower.contains("elixir") {
             host.run_command("playsound entity.generic.drink player @a ~ ~ ~ 1.0 1.0");
             host.run_command("effect give @p regeneration 10 1");
@@ -471,6 +551,362 @@ impl ActionDispatcher {
         }
 
         false
+    }
+
+    /// Dispatches specialized Electroblob's Wizardry items (Scrolls, Spell Books, Wands).
+    #[allow(clippy::too_many_arguments)]
+    pub fn dispatch_wizardry_item(
+        host: &mut dyn Host,
+        item_id: &str,
+        eye_pos: [f64; 3],
+        spawn_pos: [f64; 3],
+        direction: [f64; 3],
+        target_pos: Option<[f64; 3]>,
+        _target_block_pos: Option<[i32; 3]>,
+    ) -> bool {
+        let lower = item_id.to_ascii_lowercase();
+
+        // 1. Wands
+        if lower.contains("wand") {
+            let current_mana = WAND_MANA.load(std::sync::atomic::Ordering::Relaxed);
+            let (max_mana, default_cost) = if lower.contains("master") {
+                (1400, 45)
+            } else if lower.contains("advanced") {
+                (700, 30)
+            } else if lower.contains("apprentice") {
+                (300, 20)
+            } else {
+                (100, 10)
+            };
+
+            let (spell_id, _spell_display, spell_cost) = Self::get_active_wand_spell();
+            let effective_cost = (*spell_cost).min(max_mana).max(default_cost);
+
+            if current_mana < effective_cost {
+                host.run_command("playsound block.fire.extinguish player @a ~ ~ ~ 0.8 1.5");
+                host.run_command("particle smoke ~ ~1 ~ 0.2 0.2 0.2 0.05 12");
+                if let Some(player) = Self::resolve_player(host) {
+                    host.action_bar(
+                        player.uuid,
+                        Text::literal(format!("§c⚠️ Insufficient Mana: [{current_mana}/{max_mana}] (Needs {effective_cost})§r")),
+                    );
+                }
+                return true;
+            }
+
+            let new_mana = current_mana - effective_cost;
+            WAND_MANA.store(new_mana, std::sync::atomic::Ordering::Relaxed);
+
+            Self::dispatch_wizardry_spell(
+                host,
+                spell_id,
+                eye_pos,
+                spawn_pos,
+                direction,
+                target_pos,
+                false,
+                Some((new_mana, max_mana)),
+            );
+            return true;
+        }
+
+        // 2. Spell Scrolls
+        if lower.contains("scroll") && !lower.contains("blank") {
+            let spell = Self::extract_spell_name(&lower);
+            Self::dispatch_wizardry_spell(
+                host,
+                &spell,
+                eye_pos,
+                spawn_pos,
+                direction,
+                target_pos,
+                true,
+                None,
+            );
+            host.run_command(&format!("clear @p {item_id} 1"));
+            return true;
+        }
+
+        // 3. Spell Books
+        if lower.contains("spell_book") || lower.contains("tome") {
+            let spell = Self::extract_spell_name(&lower);
+            Self::dispatch_wizardry_spell(
+                host,
+                &spell,
+                eye_pos,
+                spawn_pos,
+                direction,
+                target_pos,
+                false,
+                None,
+            );
+            return true;
+        }
+
+        false
+    }
+
+    /// Executes the full, authentic spell mechanics for any Electroblob's Wizardry spell.
+    #[allow(clippy::too_many_arguments)]
+    pub fn dispatch_wizardry_spell(
+        host: &mut dyn Host,
+        spell: &str,
+        eye_pos: [f64; 3],
+        _spawn_pos: [f64; 3],
+        direction: [f64; 3],
+        target_pos: Option<[f64; 3]>,
+        _is_scroll: bool,
+        wand_mana_info: Option<(i64, i64)>,
+    ) {
+        let lower = spell.to_ascii_lowercase();
+        let target = target_pos.unwrap_or([
+            eye_pos[0] + direction[0] * 12.0,
+            eye_pos[1] + direction[1] * 12.0,
+            eye_pos[2] + direction[2] * 12.0,
+        ]);
+
+        host.run_command("playsound item.book.page_turn player @a ~ ~ ~ 0.8 1.2");
+
+        // 1. Necromancy: Zombie Apocalypse (Master Spell)
+        if lower.contains("zombie_apocalypse") {
+            host.run_command("playsound entity.evoker.cast_spell player @a ~ ~ ~ 1.0 0.8");
+            host.run_command(&format!(
+                "playsound block.portal.travel player @a {:.2} {:.2} {:.2} 1.0 0.7",
+                target[0], target[1], target[2]
+            ));
+            host.run_command(&format!(
+                "playsound entity.zombie.ambient player @a {:.2} {:.2} {:.2} 1.2 0.8",
+                target[0], target[1], target[2]
+            ));
+
+            host.run_command(&format!(
+                "particle portal {:.2} {:.2} {:.2} 2.0 1.0 2.0 0.2 80",
+                target[0], target[1] + 1.0, target[2]
+            ));
+            host.run_command(&format!(
+                "particle soul_fire_flame {:.2} {:.2} {:.2} 1.5 0.5 1.5 0.05 40",
+                target[0], target[1] + 0.5, target[2]
+            ));
+
+            for i in 0..6 {
+                let angle = i as f64 * (std::f64::consts::TAU / 6.0);
+                let zx = target[0] + angle.cos() * 2.8;
+                let zz = target[2] + angle.sin() * 2.8;
+                let zy = target[1];
+                let cmd = format!("summon zombie {:.2} {:.2} {:.2}", zx, zy, zz);
+                host.run_command(&cmd);
+            }
+
+            host.run_command(&format!(
+                "damage @e[x={:.2},y={:.2},z={:.2},distance=..6,type=!zombie,type=!player] 12 magic",
+                target[0], target[1], target[2]
+            ));
+
+            Self::show_spell_feedback(host, "§5☠ Zombie Apocalypse Awakened! §8[Necromancy - Master]", wand_mana_info);
+            return;
+        }
+
+        // 2. Summon Zombie
+        if lower.contains("summon_zombie") {
+            host.run_command(&format!("summon zombie {:.2} {:.2} {:.2}", target[0], target[1], target[2]));
+            host.run_command(&format!("particle portal {:.2} {:.2} {:.2} 0.5 1.0 0.5 0.1 30", target[0], target[1] + 1.0, target[2]));
+            host.run_command(&format!("playsound entity.zombie.ambient player @a {:.2} {:.2} {:.2} 1.0 1.0", target[0], target[1], target[2]));
+            Self::show_spell_feedback(host, "§2🧟 Summoned Minion Zombie §8[Necromancy - Novice]", wand_mana_info);
+            return;
+        }
+
+        // 3. Summon Skeleton / Skeleton Legion
+        if lower.contains("summon_skeleton") {
+            let count = if lower.contains("legion") { 4 } else { 1 };
+            for i in 0..count {
+                let ox = if count > 1 { (i as f64 - 1.5) * 1.5 } else { 0.0 };
+                host.run_command(&format!("summon skeleton {:.2} {:.2} {:.2}", target[0] + ox, target[1], target[2]));
+            }
+            host.run_command(&format!("playsound entity.skeleton.ambient player @a {:.2} {:.2} {:.2} 1.0 1.0", target[0], target[1], target[2]));
+            Self::show_spell_feedback(host, "§7🏹 Summoned Skeleton Minion(s) §8[Necromancy]", wand_mana_info);
+            return;
+        }
+
+        // 4. Summon Blaze
+        if lower.contains("summon_blaze") {
+            host.run_command(&format!("summon blaze {:.2} {:.2} {:.2}", target[0], target[1], target[2]));
+            host.run_command(&format!("particle flame {:.2} {:.2} {:.2} 0.5 1.0 0.5 0.1 25", target[0], target[1] + 1.0, target[2]));
+            host.run_command(&format!("playsound entity.blaze.ambient player @a {:.2} {:.2} {:.2} 1.0 1.0", target[0], target[1], target[2]));
+            Self::show_spell_feedback(host, "§6🔥 Summoned Minion Blaze §8[Fire - Advanced]", wand_mana_info);
+            return;
+        }
+
+        // 5. Summon Ice Giant
+        if lower.contains("summon_ice_giant") || lower.contains("snow_golem") {
+            let entity = if lower.contains("ice_giant") { "iron_golem" } else { "snow_golem" };
+            host.run_command(&format!("summon {entity} {:.2} {:.2} {:.2}", target[0], target[1], target[2]));
+            host.run_command(&format!("particle snowflake {:.2} {:.2} {:.2} 0.8 1.5 0.8 0.1 40", target[0], target[1] + 1.0, target[2]));
+            host.run_command(&format!("playsound block.powder_snow.break player @a {:.2} {:.2} {:.2} 1.0 0.8", target[0], target[1], target[2]));
+            Self::show_spell_feedback(host, "§b❄ Summoned Frost Golem §8[Ice]", wand_mana_info);
+            return;
+        }
+
+        // 6. Pyromancy: Fireball
+        if lower.contains("fireball") || lower.contains("dragon_fireball") {
+            Self::render_particle_beam(host, eye_pos, direction, 14.0, "flame");
+            host.run_command(&format!(
+                "particle explosion_emitter {:.2} {:.2} {:.2} 0 0 0 0 1",
+                target[0], target[1], target[2]
+            ));
+            host.run_command(&format!(
+                "playsound entity.generic.explode block @a {:.2} {:.2} {:.2} 1.5 1.0",
+                target[0], target[1], target[2]
+            ));
+            host.run_command(&format!(
+                "damage @e[x={:.2},y={:.2},z={:.2},distance=..4.5,type=!player] 12 fire",
+                target[0], target[1], target[2]
+            ));
+            host.run_command(&format!(
+                "setblock {:.0} {:.0} {:.0} fire keep",
+                target[0], target[1], target[2]
+            ));
+            Self::show_spell_feedback(host, "§c🔥 Fireball Launched! §8[Fire - Apprentice]", wand_mana_info);
+            return;
+        }
+
+        // 7. Explosions & Meteors
+        if lower.contains("firebomb") || lower.contains("meteor") || lower.contains("detonate") || lower.contains("combustion") {
+            host.run_command(&format!(
+                "particle explosion_emitter {:.2} {:.2} {:.2} 0 0 0 0 1",
+                target[0], target[1], target[2]
+            ));
+            host.run_command(&format!(
+                "playsound entity.generic.explode block @a {:.2} {:.2} {:.2} 2.0 0.9",
+                target[0], target[1], target[2]
+            ));
+            host.run_command(&format!(
+                "damage @e[x={:.2},y={:.2},z={:.2},distance=..6,type=!player] 16 explosion",
+                target[0], target[1], target[2]
+            ));
+            Self::show_spell_feedback(host, "§4💥 Meteor Impact! §8[Fire - Master]", wand_mana_info);
+            return;
+        }
+
+        // 8. Electromancy: Lightning Bolt & Thunderbolt
+        if lower.contains("lightning") || lower.contains("thunder") {
+            host.run_command(&format!("summon lightning_bolt {:.2} {:.2} {:.2}", target[0], target[1], target[2]));
+            host.run_command(&format!(
+                "damage @e[x={:.2},y={:.2},z={:.2},distance=..5,type=!player] 10 lightning_bolt",
+                target[0], target[1], target[2]
+            ));
+            Self::show_spell_feedback(host, "§e⚡ Lightning Bolt Smite! §8[Lightning]", wand_mana_info);
+            return;
+        }
+
+        // 9. Cryomancy: Ice Shard, Ice Lance, Freeze
+        if lower.contains("ice") || lower.contains("frost") || lower.contains("freeze") || lower.contains("blizzard") {
+            Self::render_particle_beam(host, eye_pos, direction, 14.0, "snowflake");
+            host.run_command(&format!(
+                "particle snowflake {:.2} {:.2} {:.2} 1.5 1.0 1.5 0.1 50",
+                target[0], target[1], target[2]
+            ));
+            host.run_command(&format!(
+                "playsound block.powder_snow.break block @a {:.2} {:.2} {:.2} 1.0 0.8",
+                target[0], target[1], target[2]
+            ));
+            host.run_command(&format!(
+                "effect give @e[x={:.2},y={:.2},z={:.2},distance=..5,type=!player] slowness 8 3",
+                target[0], target[1], target[2]
+            ));
+            host.run_command(&format!(
+                "damage @e[x={:.2},y={:.2},z={:.2},distance=..5,type=!player] 8 freeze",
+                target[0], target[1], target[2]
+            ));
+            Self::show_spell_feedback(host, "§b❄ Piercing Frost! §8[Ice]", wand_mana_info);
+            return;
+        }
+
+        // 10. Healing: Heal, Greater Heal
+        if lower.contains("heal") || lower.contains("vitality") {
+            host.run_command("effect give @p instant_health 1 2");
+            host.run_command("playsound entity.player.levelup player @p ~ ~ ~ 1.0 1.5");
+            host.run_command("particle heart ~ ~1.5 ~ 0.5 0.5 0.5 0.1 12");
+            Self::show_spell_feedback(host, "§a💖 Divine Healing! §8[Healing]", wand_mana_info);
+            return;
+        }
+
+        // 11. Sorcery: Blink & Teleport
+        if lower.contains("blink") || lower.contains("teleport") || lower.contains("phase_step") {
+            let dest = target_pos.unwrap_or([
+                eye_pos[0] + direction[0] * 8.0,
+                eye_pos[1] + direction[1] * 8.0,
+                eye_pos[2] + direction[2] * 8.0,
+            ]);
+            host.run_command(&format!("tp @p {:.2} {:.2} {:.2}", dest[0], dest[1], dest[2]));
+            host.run_command("playsound entity.enderman.teleport player @p ~ ~ ~ 1.0 1.0");
+            host.run_command("particle portal ~ ~1.0 ~ 0.5 0.5 0.5 0.1 30");
+            Self::show_spell_feedback(host, "§d✨ Blinked! §8[Sorcery]", wand_mana_info);
+            return;
+        }
+
+        // 12. Sorcery: Flight & Levitation
+        if lower.contains("flight") || lower.contains("levitation") {
+            host.run_command("effect give @p levitation 10 1");
+            host.run_command("effect give @p slow_falling 15 1");
+            host.run_command("playsound entity.phantom.flap player @a ~ ~ ~ 1.0 1.2");
+            Self::show_spell_feedback(host, "§f🕊 Arcane Flight! §8[Sorcery]", wand_mana_info);
+            return;
+        }
+
+        // 13. Earth: Fangs
+        if lower.contains("fangs") {
+            for i in 1..=4 {
+                let fx = eye_pos[0] + direction[0] * (i as f64 * 2.0);
+                let fy = eye_pos[1];
+                let fz = eye_pos[2] + direction[2] * (i as f64 * 2.0);
+                host.run_command(&format!("summon evoker_fangs {:.2} {:.2} {:.2}", fx, fy, fz));
+            }
+            host.run_command("playsound entity.evoker_fangs.attack player @a ~ ~ ~ 1.0 1.0");
+            Self::show_spell_feedback(host, "§8🐊 Evoker Fangs Erupted! §8[Earth]", wand_mana_info);
+            return;
+        }
+
+        // 14. Earth: Tornado & Whirlwind
+        if lower.contains("tornado") || lower.contains("whirlwind") {
+            host.run_command(&format!("particle cloud {:.2} {:.2} {:.2} 1.0 2.0 1.0 0.2 60", target[0], target[1], target[2]));
+            host.run_command(&format!("playsound entity.warden.sonic_boom player @a {:.2} {:.2} {:.2} 0.8 1.5", target[0], target[1], target[2]));
+            host.run_command(&format!("effect give @e[x={:.2},y={:.2},z={:.2},distance=..5,type=!player] levitation 4 3", target[0], target[1], target[2]));
+            host.run_command(&format!("damage @e[x={:.2},y={:.2},z={:.2},distance=..5,type=!player] 8 magic", target[0], target[1], target[2]));
+            Self::show_spell_feedback(host, "§7🌪 Whirlwind Summoned! §8[Earth]", wand_mana_info);
+            return;
+        }
+
+        // Generic Spell Fallback
+        Self::render_particle_beam(host, eye_pos, direction, 14.0, "witch");
+        host.run_command(&format!(
+            "damage @e[x={:.2},y={:.2},z={:.2},distance=..4,type=!player] 8 magic",
+            target[0], target[1], target[2]
+        ));
+        let title = format!("§d🔮 Cast: §e{}§r", clean_name(spell));
+        Self::show_spell_feedback(host, &title, wand_mana_info);
+    }
+
+    /// Extracts the canonical spell ID from an item ID string.
+    pub fn extract_spell_name(item_id: &str) -> String {
+        let sub = item_id.split_once(':').map_or(item_id, |(_, s)| s);
+        if let Some(spell) = sub.strip_prefix("scroll_") {
+            spell.to_string()
+        } else if let Some(spell) = sub.strip_prefix("spell_book_") {
+            spell.to_string()
+        } else {
+            sub.to_string()
+        }
+    }
+
+    fn show_spell_feedback(host: &mut dyn Host, message: &str, wand_mana_info: Option<(i64, i64)>) {
+        if let Some(player) = Self::resolve_player(host) {
+            let text = if let Some((cur, max)) = wand_mana_info {
+                format!("{message} §f| §b[{cur}/{max} Mana]§r")
+            } else {
+                message.to_string()
+            };
+            host.action_bar(player.uuid, Text::literal(text));
+        }
     }
 
     /// Renders a ray of particles along the player's view vector.
@@ -508,4 +944,39 @@ fn clean_name(id: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn resolve_entity_command(entity_type: &str) -> String {
+    let lower = entity_type.to_ascii_lowercase();
+    if lower.contains("zombie") {
+        "zombie".to_string()
+    } else if lower.contains("wither_skeleton") {
+        "wither_skeleton".to_string()
+    } else if lower.contains("skeleton") {
+        "skeleton".to_string()
+    } else if lower.contains("blaze") {
+        "blaze".to_string()
+    } else if lower.contains("spider") {
+        "cave_spider".to_string()
+    } else if lower.contains("silverfish") {
+        "silverfish".to_string()
+    } else if lower.contains("vex") {
+        "vex".to_string()
+    } else if lower.contains("slime") {
+        "slime".to_string()
+    } else if lower.contains("snow_golem") {
+        "snow_golem".to_string()
+    } else if lower.contains("golem") || lower.contains("giant") {
+        "iron_golem".to_string()
+    } else if lower.contains("lightning") {
+        "lightning_bolt".to_string()
+    } else if lower.contains("fireball") {
+        "small_fireball".to_string()
+    } else if lower.contains("fangs") {
+        "evoker_fangs".to_string()
+    } else if lower.contains("phantom") {
+        "phantom".to_string()
+    } else {
+        entity_type.split_once(':').map_or(entity_type, |(_, s)| s).to_string()
+    }
 }

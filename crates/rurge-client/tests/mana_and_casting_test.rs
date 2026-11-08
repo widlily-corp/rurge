@@ -1,6 +1,17 @@
 use rurge_client::action_dispatcher::ActionDispatcher;
 
 #[test]
+fn test_wand_mana_lifecycle() {
+    ActionDispatcher::set_wand_mana(1400);
+    assert_eq!(ActionDispatcher::get_wand_mana(), 1400);
+
+    ActionDispatcher::set_wand_mana(0);
+    assert_eq!(ActionDispatcher::get_wand_mana(), 0);
+
+    ActionDispatcher::set_wand_mana(1400);
+}
+
+#[test]
 fn test_mana_deduction_prevents_casting_when_empty() {
     let initial_mana = 10;
     let spell_cost = 25;

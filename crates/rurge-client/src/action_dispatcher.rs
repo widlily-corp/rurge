@@ -6,9 +6,19 @@ use rurge_converter::ir::{ActionEffect, ItemTrigger};
 use rurge_runtime::engine::RurgeEngine;
 use std::sync::Arc;
 
+static WAND_MANA: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1400);
+
 pub struct ActionDispatcher;
 
 impl ActionDispatcher {
+    pub fn get_wand_mana() -> i64 {
+        WAND_MANA.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn set_wand_mana(val: i64) {
+        WAND_MANA.store(val, std::sync::atomic::Ordering::Relaxed);
+    }
+
     /// Resolves the acting player, with automatic singleplayer fallback to the first server player.
     #[inline]
     pub fn resolve_player(host: &dyn Host) -> Option<horizon_client::mod_api::NativeServerPlayer> {
@@ -131,6 +141,7 @@ impl ActionDispatcher {
 
         // 2. Semantic block interactions (Arcane Workbench, Altar, Pedestals)
         if trimmed_id.contains("workbench") || trimmed_id.contains("altar") || trimmed_id.contains("pedestal") {
+            WAND_MANA.store(1400, std::sync::atomic::Ordering::Relaxed);
             host.run_command(&format!(
                 "playsound block.enchantment_table.use block @a {} {} {} 1.0 1.0",
                 pos[0], pos[1], pos[2]
@@ -291,6 +302,31 @@ impl ActionDispatcher {
 
         // 1. Magic Wands
         if lower.contains("wand") {
+            let current_mana = WAND_MANA.load(std::sync::atomic::Ordering::Relaxed);
+            let (max_mana, spell_cost) = if lower.contains("master") {
+                (1400, 45)
+            } else if lower.contains("advanced") {
+                (700, 30)
+            } else if lower.contains("apprentice") {
+                (300, 20)
+            } else {
+                (100, 10)
+            };
+
+            if current_mana < spell_cost {
+                host.run_command("playsound block.fire.extinguish player @a ~ ~ ~ 0.8 1.5");
+                host.run_command("particle smoke ~ ~1 ~ 0.2 0.2 0.2 0.05 12");
+                if let Some(player) = Self::resolve_player(host) {
+                    host.action_bar(
+                        player.uuid,
+                        Text::literal(format!("§c⚠️ Not enough mana! [{}/{}] Recharge at Arcane Workbench§r", current_mana, max_mana)),
+                    );
+                }
+                return true;
+            }
+
+            let new_mana = (current_mana - spell_cost).max(0);
+            WAND_MANA.store(new_mana, std::sync::atomic::Ordering::Relaxed);
             host.run_command("playsound item.wand.blast player @a ~ ~ ~ 0.9 1.1");
             let particle = if lower.contains("fire") {
                 "flame"
@@ -346,7 +382,7 @@ impl ActionDispatcher {
             if let Some(player) = Self::resolve_player(host) {
                 host.action_bar(
                     player.uuid,
-                    Text::literal(format!("§b⚡ Cast Wand:§r {}", clean_name(item_id))),
+                    Text::literal(format!("§b⚡ Mana: [{}/{}] §f| §6Cast: §e{}§r", new_mana, max_mana, clean_name(item_id))),
                 );
             }
             return true;

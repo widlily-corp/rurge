@@ -14,6 +14,7 @@ use crate::block_entity::BlockEntityManager;
 use crate::content_schema::ContentSchemaExecutor;
 use crate::hooks::{ClientTickEvent, ServerTickEvent, TickHooks};
 use crate::render::RenderPipelineHooks;
+use crate::scripting::MechanicsExecutor;
 
 /// Errors that can occur during runtime engine initialization and execution.
 #[derive(Debug, thiserror::Error)]
@@ -46,6 +47,7 @@ pub struct RurgeEngine {
     render_hooks: RenderPipelineHooks,
     tick_hooks: TickHooks,
     block_entities: Arc<BlockEntityManager>,
+    mechanics: Arc<MechanicsExecutor>,
     initialized: AtomicBool,
     shader_uniforms: RwLock<[[f32; 4]; 8]>,
 }
@@ -65,6 +67,7 @@ impl RurgeEngine {
         let render_hooks = RenderPipelineHooks::new();
         let tick_hooks = TickHooks::new();
         let block_entities = Arc::new(BlockEntityManager::new());
+        let mechanics = Arc::new(MechanicsExecutor::new());
 
         Self {
             mods_dir: mods_dir.into(),
@@ -76,6 +79,7 @@ impl RurgeEngine {
             render_hooks,
             tick_hooks,
             block_entities,
+            mechanics,
             initialized: AtomicBool::new(false),
             shader_uniforms: RwLock::new([[0.0f32; 4]; 8]),
         }
@@ -278,6 +282,11 @@ impl RurgeEngine {
     /// Returns a reference to the block entity manager.
     pub fn block_entities(&self) -> &Arc<BlockEntityManager> {
         &self.block_entities
+    }
+
+    /// Returns a reference to the mechanics scripting executor.
+    pub fn mechanics(&self) -> &Arc<MechanicsExecutor> {
+        &self.mechanics
     }
 
     /// Convenience helper to register a block entity at the given coordinates.

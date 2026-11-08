@@ -394,12 +394,22 @@ pub fn build_rmod_package(
         }
     }
 
-    // 10. Write language files in deterministic order
+    // 10. Write language files in deterministic order, merging ir.lang into en_us.json
     let mut lang_paths: Vec<_> = assets.raw_lang_files.keys().collect();
     lang_paths.sort();
     for path in lang_paths {
-        let bytes = &assets.raw_lang_files[path];
-        write_zip_entry(&mut zip, &mut written_entries, options, path, bytes)?;
+        let bytes = if path.ends_with("en_us.json") {
+            let mut merged_lang = ir.lang.clone();
+            if let Ok(existing) = serde_json::from_slice::<std::collections::BTreeMap<String, String>>(&assets.raw_lang_files[path]) {
+                for (k, v) in existing {
+                    merged_lang.entry(k).or_insert(v);
+                }
+            }
+            serde_json::to_vec_pretty(&merged_lang).unwrap_or_else(|_| assets.raw_lang_files[path].clone())
+        } else {
+            assets.raw_lang_files[path].clone()
+        };
+        write_zip_entry(&mut zip, &mut written_entries, options, path, &bytes)?;
     }
 
     let lang_fallback_path = format!("assets/{default_ns}/lang/en_us.json");
@@ -559,9 +569,10 @@ pub fn build_rmod_package(
         }
     }
 
-    // Check if the mod defines creative tabs (or if lang keys declare multiple tabs)
+    // Check if the mod defines creative tabs or if large item count requires semantic partitioning
     let has_wizardry_tabs = ir.creative_tabs.iter().any(|t| t.id.contains("wands") || t.id.contains("armors"))
-        || ir.lang.keys().any(|k| k.contains("ebwizardry_wands") || k.contains("ebwizardry_armors"));
+        || ir.lang.keys().any(|k| k.contains("ebwizardry_wands") || k.contains("ebwizardry_armors"))
+        || (item_ids.len() + block_ids.len()) > 45;
 
     if has_wizardry_tabs {
         // Build all 6 specialized tabs:

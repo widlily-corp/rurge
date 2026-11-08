@@ -4,7 +4,7 @@
 //! defined declaratively in `content.json` within `.rmod` mod packages.
 
 use parking_lot::RwLock;
-pub use rurge_converter::ir::ToolType;
+pub use rurge_converter::ir::{BlockTriggerDef, ItemActionDef, ToolType};
 pub use rurge_converter::schema::{
     ContentSchema, SchemaBlock, SchemaFoodStats, SchemaItem, SchemaRecipe, SchemaRecipeResult,
     SchemaToolStats,
@@ -18,6 +18,8 @@ struct ContentStore {
     items: HashMap<String, SchemaItem>,
     recipes: Vec<SchemaRecipe>,
     origins: HashMap<String, String>,
+    item_actions: HashMap<String, Vec<ItemActionDef>>,
+    block_triggers: HashMap<String, Vec<BlockTriggerDef>>,
 }
 
 /// Thread-safe runtime executor managing declarative blocks, items, and recipes
@@ -108,10 +110,37 @@ impl ContentSchemaExecutor {
             normalized_item.id = full_id.clone();
 
             store.origins.insert(full_id.clone(), trimmed_mod_id.to_string());
+            if !item.actions.is_empty() {
+                store.item_actions.entry(full_id.clone()).or_default().extend(item.actions.clone());
+            }
             store.items.insert(full_id, normalized_item);
         }
 
-        // 5. Register recipes
+        // 5. Register top-level schema item actions
+        for action in &schema.item_actions {
+            if let Some(ref target) = action.item_id {
+                let full_id = if target.contains(':') {
+                    target.clone()
+                } else {
+                    format!("{trimmed_mod_id}:{target}")
+                };
+                store.item_actions.entry(full_id).or_default().push(action.clone());
+            }
+        }
+
+        // 6. Register block triggers
+        for trigger in &schema.block_triggers {
+            if let Some(ref target) = trigger.block_id {
+                let full_id = if target.contains(':') {
+                    target.clone()
+                } else {
+                    format!("{trimmed_mod_id}:{target}")
+                };
+                store.block_triggers.entry(full_id).or_default().push(trigger.clone());
+            }
+        }
+
+        // 7. Register recipes
         for recipe in &schema.recipes {
             store.recipes.push(recipe.clone());
         }
@@ -162,6 +191,44 @@ impl ContentSchemaExecutor {
         }
 
         None
+    }
+
+    /// Retrieves all declarative actions registered for an item ID.
+    pub fn get_item_actions(&self, id: &str) -> Vec<ItemActionDef> {
+        let store = self.store.read();
+        if let Some(actions) = store.item_actions.get(id) {
+            return actions.clone();
+        }
+
+        if !id.contains(':') {
+            let suffix = format!(":{id}");
+            for (k, v) in &store.item_actions {
+                if k.ends_with(&suffix) {
+                    return v.clone();
+                }
+            }
+        }
+
+        Vec::new()
+    }
+
+    /// Retrieves all declarative triggers registered for a block ID.
+    pub fn get_block_triggers(&self, id: &str) -> Vec<BlockTriggerDef> {
+        let store = self.store.read();
+        if let Some(triggers) = store.block_triggers.get(id) {
+            return triggers.clone();
+        }
+
+        if !id.contains(':') {
+            let suffix = format!(":{id}");
+            for (k, v) in &store.block_triggers {
+                if k.ends_with(&suffix) {
+                    return v.clone();
+                }
+            }
+        }
+
+        Vec::new()
     }
 
     /// Returns all registered blocks sorted alphabetically by ID.

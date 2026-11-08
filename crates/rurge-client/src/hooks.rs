@@ -3,8 +3,9 @@ use std::process::Command;
 use std::sync::Arc;
 use abi_stable::std_types::RString;
 use horizon_client::mod_api::{
-    BlocksEvent, CommandEvent, CommandsEvent, Corner, Flow, Hooks, Host, HudEvent, ItemsEvent,
-    KeyEvent, ModsEvent, NativeMod, SettingsClickEvent, SettingsEvent, ShaderParamsEvent, Text,
+    AttackEntityEvent, BlocksEvent, CommandEvent, CommandsEvent, Corner, Flow, Hooks, Host,
+    HudEvent, ItemsEvent, KeyEvent, ModsEvent, NativeMod, RightClickBlockEvent, SettingsClickEvent,
+    SettingsEvent, ShaderParamsEvent, Text, UseItemEvent, UseItemOnEvent,
 };
 use horizon_mods::content::{Block as HorizonBlock, Item as HorizonItem};
 use horizon_client_render::gfx::native_render::{
@@ -320,6 +321,78 @@ impl RurgeHorizonHooks {
 impl Hooks for RurgeHorizonHooks {
     fn render(&self) -> Option<&dyn RenderHooks> {
         Some(self)
+    }
+
+    fn use_item(&self, host: &mut dyn Host, event: &mut UseItemEvent<'_>) -> Flow {
+        let item_id = event.stack.item.as_ref();
+        crate::action_dispatcher::ActionDispatcher::handle_item_use(
+            &self.engine,
+            host,
+            item_id,
+            None,
+            None,
+        )
+    }
+
+    fn use_item_on(&self, host: &mut dyn Host, event: &mut UseItemOnEvent<'_>) -> Flow {
+        let item_id = event.stack.item.as_ref();
+        let target_pos = [
+            event.pos[0] as f64 + 0.5 + event.face[0] as f64 * 0.5,
+            event.pos[1] as f64 + 0.5 + event.face[1] as f64 * 0.5,
+            event.pos[2] as f64 + 0.5 + event.face[2] as f64 * 0.5,
+        ];
+
+        // 1. Check if the clicked block itself is an interactive mod block
+        let block_id = host.block(event.pos);
+        if !block_id.is_empty() && !block_id.starts_with("minecraft:") {
+            let flow = crate::action_dispatcher::ActionDispatcher::handle_block_use(
+                &self.engine,
+                host,
+                &block_id,
+                event.pos,
+            );
+            if matches!(flow, Flow::Cancel) {
+                return Flow::Cancel;
+            }
+        }
+
+        // 2. Otherwise execute item action on block
+        crate::action_dispatcher::ActionDispatcher::handle_item_use(
+            &self.engine,
+            host,
+            item_id,
+            Some(target_pos),
+            Some(event.pos),
+        )
+    }
+
+    fn right_click_block(&self, host: &mut dyn Host, event: &mut RightClickBlockEvent) -> Flow {
+        let block_id = host.block(event.pos);
+        crate::action_dispatcher::ActionDispatcher::handle_block_use(
+            &self.engine,
+            host,
+            &block_id,
+            event.pos,
+        )
+    }
+
+    fn attack_entity(&self, host: &mut dyn Host, event: &mut AttackEntityEvent<'_>) -> Flow {
+        if let Some((item_id, _, _)) = host.held() {
+            if item_id.contains("flaming") || item_id.contains("fire") {
+                host.run_command("playsound entity.player.attack.crit player @a ~ ~ ~ 1.0 1.0");
+                host.run_command(&format!(
+                    "particle flame {:.2} {:.2} {:.2} 0.3 0.3 0.3 0.1 12",
+                    event.pos[0], event.pos[1], event.pos[2]
+                ));
+            } else if item_id.contains("frost") || item_id.contains("ice") {
+                host.run_command("playsound entity.player.attack.knockback player @a ~ ~ ~ 1.0 1.2");
+                host.run_command(&format!(
+                    "particle snowflake {:.2} {:.2} {:.2} 0.3 0.3 0.3 0.1 12",
+                    event.pos[0], event.pos[1], event.pos[2]
+                ));
+            }
+        }
+        Flow::Continue
     }
 
     fn blocks(&self, event: &mut BlocksEvent<'_>) {

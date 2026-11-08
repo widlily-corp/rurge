@@ -47,6 +47,7 @@ impl HostCallContext {
         Self::default()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn record_particle(
         &mut self,
         particle_type: u32,
@@ -81,6 +82,7 @@ impl HostCallContext {
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn record_projectile(
         &mut self,
         proj_type: u32,

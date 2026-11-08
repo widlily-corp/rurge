@@ -45,5 +45,5 @@ fn test_ebwizardry_mod_loading_and_content_queries() {
     println!("NativeMod description: {}", eb_entry.description);
     assert!(eb_entry.title.contains("ebwizardry"));
     assert!(eb_entry.description.contains("Blocks: 54"));
-    assert!(eb_entry.description.contains("Items: 1421"));
+    assert!(eb_entry.description.contains(&format!("Items: {}", content.item_count())));
 }

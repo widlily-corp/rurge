@@ -382,7 +382,7 @@ impl ActionDispatcher {
             if let Some(player) = Self::resolve_player(host) {
                 host.action_bar(
                     player.uuid,
-                    Text::literal(format!("§b⚡ Mana: [{}/{}] §f| §6Cast: §e{}§r", new_mana, max_mana, clean_name(item_id))),
+                    Text::literal(format!("§b⚡ Cast Wand: [{}/{}] §f| §6Spell: §e{}§r", new_mana, max_mana, clean_name(item_id))),
                 );
             }
             return true;

@@ -110,6 +110,11 @@ impl ConstantPool {
         self.entries.len()
     }
 
+    /// Returns a slice of all constant pool entries.
+    pub fn entries(&self) -> &[ConstantPoolEntry] {
+        &self.entries
+    }
+
     /// Returns `true` if the constant pool contains no usable entries.
     pub fn is_empty(&self) -> bool {
         self.entries.len() <= 1

@@ -285,13 +285,28 @@ fn process_forge_registration_window(
         return;
     }
 
-    // Skip registrations from non-content registries (Sounds, Particles, MobEffects, DamageSources, Menus, Biomes)
+    // Skip registrations from non-content registries (Sounds, Particles, MobEffects, DamageSources, Menus, Biomes, Recipes, Entities, Tiers, Elements)
     // or entries with dot-separated paths (e.g. sound events, translation keys)
     if enclosing_class.contains("Sound")
         || enclosing_class.contains("Particle")
         || enclosing_class.contains("Damage")
         || enclosing_class.contains("Menu")
         || enclosing_class.contains("MobEffect")
+        || enclosing_class.contains("Recipe")
+        || enclosing_class.contains("Entity")
+        || enclosing_class.contains("Entities")
+        || enclosing_class.contains("Tier")
+        || enclosing_class.contains("Element")
+        || enclosing_class.contains("Loot")
+        || enclosing_class.contains("Feature")
+        || enclosing_class.contains("Structure")
+        || enclosing_class.contains("Criterion")
+        || enclosing_class.contains("Trigger")
+        || enclosing_class.contains("Enchantment")
+        || enclosing_class.contains("Attribute")
+        || enclosing_class.contains("Material")
+        || enclosing_class.contains("Component")
+        || enclosing_class.contains("Potion")
         || entry_name.contains('.')
     {
         return;

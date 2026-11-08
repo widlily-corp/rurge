@@ -489,6 +489,67 @@ impl<'a> TemplateEngine<'a> {
             }
         }
 
+        // 11b. Spells, Books, Scrolls, Flasks, Bombs & Artifacts
+        if combined.contains("scroll") {
+            return ItemTemplateInfo {
+                template: "minecraft:paper".to_string(),
+                max_stack_size: 16,
+                equipment_slot: None,
+                armor_defense: None,
+                attack_damage: None,
+                attack_speed: None,
+                durability: None,
+            };
+        }
+
+        if combined.contains("spell_book") || combined.contains("tome") || combined.contains("handbook") || combined.contains("book") {
+            return ItemTemplateInfo {
+                template: "minecraft:enchanted_book".to_string(),
+                max_stack_size: 1,
+                equipment_slot: None,
+                armor_defense: None,
+                attack_damage: None,
+                attack_speed: None,
+                durability: None,
+            };
+        }
+
+        if combined.contains("flask") || combined.contains("elixir") || combined.contains("potion") {
+            return ItemTemplateInfo {
+                template: "minecraft:potion".to_string(),
+                max_stack_size: 16,
+                equipment_slot: None,
+                armor_defense: None,
+                attack_damage: None,
+                attack_speed: None,
+                durability: None,
+            };
+        }
+
+        if combined.contains("bomb") {
+            return ItemTemplateInfo {
+                template: "minecraft:snowball".to_string(),
+                max_stack_size: 16,
+                equipment_slot: None,
+                armor_defense: None,
+                attack_damage: None,
+                attack_speed: None,
+                durability: None,
+            };
+        }
+
+        if combined.contains("ring") || combined.contains("amulet") || combined.contains("charm") || combined.contains("bauble") {
+            return ItemTemplateInfo {
+                template: "minecraft:iron_nugget".to_string(),
+                max_stack_size: 1,
+                equipment_slot: None,
+                armor_defense: None,
+                attack_damage: None,
+                attack_speed: None,
+                durability: None,
+            };
+        }
+
         // 12. Food items
         let is_food = combined.contains("apple")
             || combined.contains("bread")

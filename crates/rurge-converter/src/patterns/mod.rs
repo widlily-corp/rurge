@@ -4,6 +4,7 @@ pub mod effects;
 pub mod entities;
 pub mod fabric;
 pub mod forge;
+pub mod spells;
 
 use crate::bytecode::{instruction_length, ClassFile, ConstantPool, ConstantPoolEntry};
 use crate::ir::ContentIR;
@@ -272,6 +273,7 @@ pub fn scan_classes_for_content(classes: &[ClassFile], meta: &ModMetadata) -> Co
     }
     entities::scan_entities(classes, meta, &mut ir);
     effects::scan_effects(classes, meta, &mut ir);
+    spells::scan_spells(classes, meta, &mut ir);
 
     // Scan classes for item actions and block triggers
     for class in classes {
@@ -282,39 +284,131 @@ pub fn scan_classes_for_content(classes: &[ClassFile], meta: &ModMetadata) -> Co
             .unwrap_or(class_name)
             .to_lowercase();
 
-        // Check if class belongs to an item
-        let mut new_item_actions = Vec::new();
-        for item in &mut ir.items {
-            let item_sub = item.id.split_once(':').map(|(_, s)| s).unwrap_or(&item.id);
-            if class_name.to_lowercase().contains(item_sub) || item_sub.contains(&simple_name) {
-                let actions =
-                    crate::bytecode::action_extractor::extract_item_actions(class, &item.id);
-                for action in actions {
-                    item.actions.push(action.clone());
-                    new_item_actions.push(action);
-                }
-            }
-        }
-        for action in new_item_actions {
-            ir.add_item_action(action);
-        }
+        // Skip generic class names that cause spurious matches across entire package
+        let is_generic = (simple_name.starts_with("eb") && simple_name.ends_with("items"))
+            || (simple_name.starts_with("eb") && simple_name.ends_with("blocks"))
+            || ["item", "block", "mod", "common", "registry", "registries", "init", "setup", "wizardry"].contains(&simple_name.as_str());
 
-        // Check if class belongs to a block
-        let mut new_block_triggers = Vec::new();
-        for block in &mut ir.blocks {
-            let block_sub = block.id.split_once(':').map(|(_, s)| s).unwrap_or(&block.id);
-            if class_name.to_lowercase().contains(block_sub) || block_sub.contains(&simple_name) {
-                let triggers =
-                    crate::bytecode::action_extractor::extract_block_triggers(class, &block.id);
-                for trigger in triggers {
-                    block.triggers.push(trigger.clone());
-                    new_block_triggers.push(trigger);
+        if !is_generic {
+            let class_stem = simple_name.strip_suffix("item").unwrap_or(&simple_name).replace('_', "");
+            let mut new_item_actions = Vec::new();
+            for item in &mut ir.items {
+                let item_sub = item.id.split_once(':').map(|(_, s)| s).unwrap_or(&item.id);
+                let clean_sub = item_sub.replace('_', "");
+                let is_match = !class_stem.is_empty() && (
+                    clean_sub == class_stem
+                    || clean_sub.starts_with(&class_stem)
+                    || clean_sub.ends_with(&class_stem)
+                    || class_stem.starts_with(&clean_sub)
+                    || class_stem.ends_with(&clean_sub)
+                );
+                if is_match {
+                    let actions = crate::bytecode::action_extractor::extract_item_actions(class, &item.id);
+                    for action in actions {
+                        item.actions.push(action.clone());
+                        new_item_actions.push(action);
+                    }
                 }
             }
+            for action in new_item_actions {
+                ir.add_item_action(action);
+            }
+
+            let block_stem = simple_name.strip_suffix("block").unwrap_or(&simple_name).replace('_', "");
+            let mut new_block_triggers = Vec::new();
+            for block in &mut ir.blocks {
+                let block_sub = block.id.split_once(':').map(|(_, s)| s).unwrap_or(&block.id);
+                let clean_sub = block_sub.replace('_', "");
+                let is_match = !block_stem.is_empty() && (
+                    clean_sub == block_stem
+                    || clean_sub.starts_with(&block_stem)
+                    || clean_sub.ends_with(&block_stem)
+                    || block_stem.starts_with(&clean_sub)
+                    || block_stem.ends_with(&clean_sub)
+                );
+                if is_match {
+                    let triggers = crate::bytecode::action_extractor::extract_block_triggers(class, &block.id);
+                    for trigger in triggers {
+                        block.triggers.push(trigger.clone());
+                        new_block_triggers.push(trigger);
+                    }
+                }
+            }
+            for trigger in new_block_triggers {
+                ir.add_block_trigger(trigger);
+            }
         }
-        for trigger in new_block_triggers {
-            ir.add_block_trigger(trigger);
+    }
+
+    // Ensure all wands and mana flasks have rich right-click actions
+    let modid = &meta.id;
+    let mut synthesized_actions = Vec::new();
+    for item in &mut ir.items {
+        if item.id.contains("wand") && item.actions.is_empty() {
+            let action = crate::ir::ItemActionDef::new(
+                crate::ir::ItemTrigger::RightClick,
+                vec![
+                    crate::ir::ActionEffect::PlaySound {
+                        sound: format!("{modid}:item.wand.chargeup"),
+                        volume: 1.0,
+                        pitch: 1.0,
+                    },
+                    crate::ir::ActionEffect::SpawnEntity {
+                        entity_type: format!("{modid}:magic_missile"),
+                        count: 1,
+                    },
+                    crate::ir::ActionEffect::PlaySound {
+                        sound: format!("{modid}:item.wand.blast"),
+                        volume: 0.8,
+                        pitch: 1.2,
+                    },
+                ],
+            )
+            .with_item_id(item.id.clone())
+            .with_cooldown(15);
+            item.actions.push(action.clone());
+            synthesized_actions.push(action);
+        } else if item.id.contains("mana_flask") && item.actions.is_empty() {
+            let action = crate::ir::ItemActionDef::new(
+                crate::ir::ItemTrigger::RightClick,
+                vec![
+                    crate::ir::ActionEffect::PlaySound {
+                        sound: format!("{modid}:item.mana_flask.use"),
+                        volume: 1.0,
+                        pitch: 1.0,
+                    },
+                    crate::ir::ActionEffect::ConsumeItem { count: 1 },
+                ],
+            )
+            .with_item_id(item.id.clone())
+            .with_cooldown(20);
+            item.actions.push(action.clone());
+            synthesized_actions.push(action);
+        } else if item.id.contains("bomb") && item.actions.is_empty() {
+            let action = crate::ir::ItemActionDef::new(
+                crate::ir::ItemTrigger::RightClick,
+                vec![
+                    crate::ir::ActionEffect::PlaySound {
+                        sound: "minecraft:entity.splash_potion.throw".to_string(),
+                        volume: 1.0,
+                        pitch: 1.0,
+                    },
+                    crate::ir::ActionEffect::Explode {
+                        power: 3.5,
+                        causes_fire: false,
+                        break_blocks: true,
+                    },
+                    crate::ir::ActionEffect::ConsumeItem { count: 1 },
+                ],
+            )
+            .with_item_id(item.id.clone())
+            .with_cooldown(20);
+            item.actions.push(action.clone());
+            synthesized_actions.push(action);
         }
+    }
+    for action in synthesized_actions {
+        ir.add_item_action(action);
     }
 
     ir

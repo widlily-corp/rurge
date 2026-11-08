@@ -228,8 +228,27 @@ fn sync_hmod_packages(mods_dir: &Path) {
             let p = entry.path();
             if p.is_file() && p.extension().is_some_and(|e| e == "rmod") {
                 let hmod = p.with_extension("hmod");
-                if !hmod.exists() {
+                let should_copy = if !hmod.exists() {
+                    true
+                } else {
+                    let rmod_meta = std::fs::metadata(&p);
+                    let hmod_meta = std::fs::metadata(&hmod);
+                    match (rmod_meta, hmod_meta) {
+                        (Ok(rm), Ok(hm)) => {
+                            rm.len() != hm.len()
+                                || rm.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                                    > hm.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                        }
+                        _ => true,
+                    }
+                };
+                if should_copy {
                     let _ = std::fs::copy(&p, &hmod);
+                    // Invalidate stamp so Horizon recompiles mod-content
+                    let stamp = Path::new(".horizon-cache/mod-content/horizon-mod-content.stamp");
+                    if stamp.exists() {
+                        let _ = std::fs::remove_file(stamp);
+                    }
                 }
             }
         }

@@ -196,6 +196,29 @@ pub fn build_rmod_package(
 
     let mut written_entries = HashSet::new();
 
+    let mut ir = ir.clone();
+    let default_ns = ir.metadata.id.clone();
+
+    // Synthesize items for models in assets.models that represent items not yet in ir.items or ir.blocks
+    for key in assets.models.keys() {
+        let (ns, rel) = if let Some((ns, sub)) = key.split_once(':') {
+            (ns, sub)
+        } else {
+            (default_ns.as_str(), key.as_str())
+        };
+        if let Some(subpath) = rel.strip_prefix("item/") {
+            let full_id = format!("{ns}:{subpath}");
+            if !ir.items.iter().any(|i| i.id == full_id)
+                && !ir.blocks.iter().any(|b| b.id == full_id)
+            {
+                let mut synth_item = crate::ir::ItemDef::new(&full_id);
+                let item_info = TemplateEngine::infer_item_template(&full_id, None, None);
+                synth_item.max_stack_size = item_info.max_stack_size;
+                ir.items.push(synth_item);
+            }
+        }
+    }
+
     // 1. Write manifest.toml
     let manifest = RmodManifest::from_metadata(&ir.metadata);
     let manifest_toml = manifest.to_toml_string()?;
@@ -228,7 +251,7 @@ pub fn build_rmod_package(
     )?;
 
     // 3. Write content.json
-    let schema = ContentSchema::from_ir(ir);
+    let schema = ContentSchema::from_ir(&ir);
     let content_json = schema.to_json_pretty()?;
     write_zip_entry(
         &mut zip,
@@ -524,6 +547,18 @@ pub fn build_rmod_package(
         }
     }
 
+    // 11d. Write Horizon menu types (data/<ns>/horizon/menu/<name>.json)
+    if default_ns == "ebwizardry" || ir.blocks.iter().any(|b| b.id.contains("workbench")) {
+        let menu_path = format!("data/{default_ns}/horizon/menu/arcane_workbench.json");
+        let menu_json = serde_json::json!({
+            "slots": 10,
+            "data_slots": 0
+        });
+        if let Ok(bytes) = serde_json::to_vec_pretty(&menu_json) {
+            write_zip_entry(&mut zip, &mut written_entries, options, &menu_path, &bytes)?;
+        }
+    }
+
     // Check if the mod defines creative tabs (or if lang keys declare multiple tabs)
     let has_wizardry_tabs = ir.creative_tabs.iter().any(|t| t.id.contains("wands") || t.id.contains("armors"))
         || ir.lang.keys().any(|k| k.contains("ebwizardry_wands") || k.contains("ebwizardry_armors"));
@@ -738,7 +773,11 @@ pub fn build_rmod_package(
             let has_block_model = assets.models.contains_key(&format!("{ns}:block/{subpath}"))
                 || assets.models.contains_key(&format!("block/{subpath}"));
 
-            let model_target = if has_item_model {
+            let model_target = if subpath.starts_with("spell_book_") {
+                format!("{ns}:item/spell_book")
+            } else if subpath.starts_with("scroll_") {
+                format!("{ns}:item/scroll")
+            } else if has_item_model {
                 format!("{ns}:item/{subpath}")
             } else if has_block_model || is_block {
                 format!("{ns}:block/{subpath}")

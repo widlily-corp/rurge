@@ -244,10 +244,11 @@ fn sync_hmod_packages(mods_dir: &Path) {
                 };
                 if should_copy {
                     let _ = std::fs::copy(&p, &hmod);
-                    // Invalidate stamp so Horizon recompiles mod-content
-                    let stamp = Path::new(".horizon-cache/mod-content/horizon-mod-content.stamp");
-                    if stamp.exists() {
-                        let _ = std::fs::remove_file(stamp);
+                    log::info!("[ModSync] Synced package to .hmod: {:?}", hmod);
+                    // Invalidate stamp and cache so Horizon recompiles mod-content
+                    let cache_dir = Path::new(".horizon-cache/mod-content");
+                    if cache_dir.exists() {
+                        let _ = std::fs::remove_dir_all(cache_dir);
                     }
                 }
             }

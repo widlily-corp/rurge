@@ -486,7 +486,11 @@ pub fn build_rmod_package(
             }
         });
         if !block.components.is_empty() {
-            block_json["components"] = serde_json::to_value(&block.components).unwrap_or_default();
+            let mut proto_comps = block.components.clone();
+            proto_comps.remove("minecraft:custom_data");
+            if !proto_comps.is_empty() {
+                block_json["components"] = serde_json::to_value(&proto_comps).unwrap_or_default();
+            }
         }
         if let Ok(bytes) = serde_json::to_vec_pretty(&block_json) {
             write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, &bytes)?;
@@ -516,7 +520,11 @@ pub fn build_rmod_package(
             "max_stack_size": effective_stack,
         });
         if !item.components.is_empty() {
-            item_json["components"] = serde_json::to_value(&item.components).unwrap_or_default();
+            let mut proto_comps = item.components.clone();
+            proto_comps.remove("minecraft:custom_data");
+            if !proto_comps.is_empty() {
+                item_json["components"] = serde_json::to_value(&proto_comps).unwrap_or_default();
+            }
         }
         if let Ok(bytes) = serde_json::to_vec_pretty(&item_json) {
             write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, &bytes)?;

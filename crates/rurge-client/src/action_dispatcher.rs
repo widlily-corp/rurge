@@ -40,6 +40,8 @@ impl ActionDispatcher {
             return Flow::Continue;
         }
 
+        log::info!("[ActionDispatcher] Player used mod item: '{}'", trimmed_id);
+
         // 1. Check registered declarative actions in ContentSchemaExecutor
         let registered_actions = engine.content().get_item_actions(trimmed_id);
         let player = Self::resolve_player(host);
@@ -118,6 +120,8 @@ impl ActionDispatcher {
         if trimmed_id.is_empty() || trimmed_id.starts_with("minecraft:") {
             return Flow::Continue;
         }
+
+        log::info!("[ActionDispatcher] Player interacted with mod block: '{}' at {:?}", trimmed_id, pos);
 
         // 1. Check registered declarative block triggers
         let registered_triggers = engine.content().get_block_triggers(trimmed_id);
@@ -312,6 +316,8 @@ impl ActionDispatcher {
             } else {
                 (100, 10)
             };
+
+            log::info!("[ActionDispatcher] Casting wand: '{}' (mana: {}/{}, cost: {})", item_id, current_mana, max_mana, spell_cost);
 
             if current_mana < spell_cost {
                 host.run_command("playsound block.fire.extinguish player @a ~ ~ ~ 0.8 1.5");

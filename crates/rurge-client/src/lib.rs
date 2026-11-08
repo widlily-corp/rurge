@@ -9,6 +9,7 @@ pub mod hooks;
 pub mod jar_scanner;
 pub mod memory;
 pub mod mesh_pipeline;
+pub mod projectile_engine;
 pub mod render_state;
 pub mod runtime_bridge;
 pub mod shaderpack_bundle;

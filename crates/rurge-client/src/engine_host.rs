@@ -210,11 +210,11 @@ pub fn launch_with_config(config: &EngineConfig) -> Result<(), Box<dyn std::erro
     let mods: horizon_client::mod_api::Mods = Arc::new([Box::new(hooks)]);
 
     // i. Launch client via horizon_client::entry::main_with
-    log::info!("Launching Horizon voxel game client via main_with...");
+    log::info!("Launching Rurge voxel client (fork of Horizon engine)...");
     horizon_client::entry::main_with(mods);
 
     // j. Clean shutdown of RurgeEngine on exit
-    log::info!("Horizon client terminated. Shutting down RurgeEngine...");
+    log::info!("Rurge client terminated. Shutting down RurgeEngine...");
     engine.shutdown();
     log::info!("Rurge Engine Host shutdown cleanly.");
 

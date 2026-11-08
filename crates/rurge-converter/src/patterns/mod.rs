@@ -259,21 +259,30 @@ fn resolve_ldc_entry(index: u16, cp: &ConstantPool) -> Opcode {
 /// based on the detected loader in `meta`.
 pub fn scan_classes_for_content(classes: &[ClassFile], meta: &ModMetadata) -> ContentIR {
     let mut ir = ContentIR::new(meta.clone());
+    populate_content_from_classes(classes, meta, &mut ir);
+    ir
+}
+
+pub fn populate_content_from_classes(
+    classes: &[ClassFile],
+    meta: &ModMetadata,
+    ir: &mut ContentIR,
+) {
     match meta.loader {
         ModLoader::Fabric | ModLoader::Quilt => {
-            fabric::scan_fabric_classes(classes, meta, &mut ir);
+            fabric::scan_fabric_classes(classes, meta, ir);
         }
         ModLoader::Forge | ModLoader::NeoForge | ModLoader::LegacyForge => {
-            forge::scan_forge_classes(classes, meta, &mut ir);
+            forge::scan_forge_classes(classes, meta, ir);
         }
         ModLoader::Unknown => {
-            fabric::scan_fabric_classes(classes, meta, &mut ir);
-            forge::scan_forge_classes(classes, meta, &mut ir);
+            fabric::scan_fabric_classes(classes, meta, ir);
+            forge::scan_forge_classes(classes, meta, ir);
         }
     }
-    entities::scan_entities(classes, meta, &mut ir);
-    effects::scan_effects(classes, meta, &mut ir);
-    spells::scan_spells(classes, meta, &mut ir);
+    entities::scan_entities(classes, meta, ir);
+    effects::scan_effects(classes, meta, ir);
+    spells::scan_spells(classes, meta, ir);
 
     // Scan classes for item actions and block triggers
     for class in classes {
@@ -410,6 +419,4 @@ pub fn scan_classes_for_content(classes: &[ClassFile], meta: &ModMetadata) -> Co
     for action in synthesized_actions {
         ir.add_item_action(action);
     }
-
-    ir
 }

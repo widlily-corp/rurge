@@ -9,6 +9,12 @@ use std::sync::Arc;
 pub struct ActionDispatcher;
 
 impl ActionDispatcher {
+    /// Resolves the acting player, with automatic singleplayer fallback to the first server player.
+    #[inline]
+    pub fn resolve_player(host: &dyn Host) -> Option<horizon_client::mod_api::NativeServerPlayer> {
+        host.acting_player().or_else(|| host.server_players().into_iter().next())
+    }
+
     /// Attempts to execute an item action for the given item stack.
     /// Returns `Flow::Cancel` if an action was handled (consuming the click and swinging hand),
     /// or `Flow::Continue` if no action was taken.
@@ -26,7 +32,7 @@ impl ActionDispatcher {
 
         // 1. Check registered declarative actions in ContentSchemaExecutor
         let registered_actions = engine.content().get_item_actions(trimmed_id);
-        let player = host.acting_player();
+        let player = Self::resolve_player(host);
 
         // Compute player view vector and coordinates as f64
         let (dir_x, dir_y, dir_z) = if let Some(ref p) = player {
@@ -106,7 +112,7 @@ impl ActionDispatcher {
         // 1. Check registered declarative block triggers
         let registered_triggers = engine.content().get_block_triggers(trimmed_id);
         if !registered_triggers.is_empty() {
-            let player = host.acting_player();
+            let player = Self::resolve_player(host);
             let eye_pos = player.as_ref().map(|p| [p.position[0], p.position[1] + 1.62, p.position[2]]).unwrap_or([pos[0] as f64, pos[1] as f64 + 1.0, pos[2] as f64]);
             for trigger in &registered_triggers {
                 Self::dispatch_effects(
@@ -135,7 +141,7 @@ impl ActionDispatcher {
                 pos[1] as f64 + 1.2,
                 pos[2] as f64 + 0.5
             ));
-            if let Some(player) = host.acting_player() {
+            if let Some(player) = Self::resolve_player(host) {
                 host.action_bar(
                     player.uuid,
                     Text::literal(format!("§6[Wizardry]§r Interacted with {}", clean_name(trimmed_id))),
@@ -159,7 +165,7 @@ impl ActionDispatcher {
         target_pos: Option<[f64; 3]>,
         target_block_pos: Option<[i32; 3]>,
     ) {
-        let player = host.acting_player();
+        let player = Self::resolve_player(host);
 
         for effect in effects {
             match effect {
@@ -337,7 +343,7 @@ impl ActionDispatcher {
                 ));
             }
 
-            if let Some(player) = host.acting_player() {
+            if let Some(player) = Self::resolve_player(host) {
                 host.action_bar(
                     player.uuid,
                     Text::literal(format!("§b⚡ Cast Wand:§r {}", clean_name(item_id))),
@@ -350,7 +356,7 @@ impl ActionDispatcher {
         if lower.contains("spell_book") || lower.contains("tome") {
             host.run_command("playsound block.enchantment_table.use player @a ~ ~ ~ 1.0 1.2");
             Self::render_particle_beam(host, eye_pos, direction, 12.0, "witch");
-            if let Some(player) = host.acting_player() {
+            if let Some(player) = Self::resolve_player(host) {
                 host.action_bar(
                     player.uuid,
                     Text::literal(format!("§d📖 Channeled:§r {}", clean_name(item_id))),
@@ -374,7 +380,7 @@ impl ActionDispatcher {
                 impact[0], impact[1], impact[2]
             ));
             host.run_command(&format!("clear @p {item_id} 1"));
-            if let Some(player) = host.acting_player() {
+            if let Some(player) = Self::resolve_player(host) {
                 host.action_bar(
                     player.uuid,
                     Text::literal(format!("§e📜 Inscribed:§r {}", clean_name(item_id))),
@@ -413,7 +419,7 @@ impl ActionDispatcher {
             host.run_command("effect give @p speed 15 1");
             host.run_command(&format!("clear @p {item_id} 1"));
             host.run_command("give @p minecraft:glass_bottle 1");
-            if let Some(player) = host.acting_player() {
+            if let Some(player) = Self::resolve_player(host) {
                 host.action_bar(
                     player.uuid,
                     Text::literal(format!("§a🧪 Drank:§r {}", clean_name(item_id))),

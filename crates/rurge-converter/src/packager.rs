@@ -394,21 +394,61 @@ pub fn build_rmod_package(
         }
     }
 
-    // 10. Write language files in deterministic order, merging ir.lang into en_us.json
+    // 10. Write language files in deterministic order, merging ir.lang into en_us.json and synthesizing names
     let mut lang_paths: Vec<_> = assets.raw_lang_files.keys().collect();
     lang_paths.sort();
     for path in lang_paths {
-        let bytes = if path.ends_with("en_us.json") {
-            let mut merged_lang = ir.lang.clone();
-            if let Ok(existing) = serde_json::from_slice::<std::collections::BTreeMap<String, String>>(&assets.raw_lang_files[path]) {
-                for (k, v) in existing {
-                    merged_lang.entry(k).or_insert(v);
+        let is_en = path.ends_with("en_us.json");
+        let mut lang_map: std::collections::BTreeMap<String, String> =
+            serde_json::from_slice(&assets.raw_lang_files[path]).unwrap_or_default();
+
+        if is_en {
+            for (k, v) in &ir.lang {
+                lang_map.insert(k.clone(), v.clone());
+            }
+        } else {
+            for (k, v) in &ir.lang {
+                if k.starts_with("item.") && (k.contains(".spell_book_") || k.contains(".scroll_")) {
+                    if !lang_map.contains_key(k) {
+                        let spell_id = k.split('_').next_back().unwrap_or("");
+                        let spell_key = format!("spell.{default_ns}.{spell_id}");
+                        if let Some(localized_spell) = lang_map.get(&spell_key).cloned() {
+                            let prefix = if k.contains(".spell_book_") {
+                                if path.ends_with("ru_ru.json") {
+                                    "Книга заклинаний: "
+                                } else if path.ends_with("de_de.json") {
+                                    "Zauberbuch: "
+                                } else if path.ends_with("fr_fr.json") {
+                                    "Livre de sorts : "
+                                } else if path.ends_with("es_es.json") {
+                                    "Libro de hechizos: "
+                                } else {
+                                    "Spell Book: "
+                                }
+                            } else if path.ends_with("ru_ru.json") {
+                                "Свиток: "
+                            } else if path.ends_with("de_de.json") {
+                                "Schriftrolle: "
+                            } else if path.ends_with("fr_fr.json") {
+                                "Parchemin : "
+                            } else if path.ends_with("es_es.json") {
+                                "Pergamino: "
+                            } else {
+                                "Scroll: "
+                            };
+                            lang_map.insert(k.clone(), format!("{prefix}{localized_spell}"));
+                        } else {
+                            lang_map.insert(k.clone(), v.clone());
+                        }
+                    }
+                } else {
+                    lang_map.entry(k.clone()).or_insert_with(|| v.clone());
                 }
             }
-            serde_json::to_vec_pretty(&merged_lang).unwrap_or_else(|_| assets.raw_lang_files[path].clone())
-        } else {
-            assets.raw_lang_files[path].clone()
-        };
+        }
+
+        let bytes = serde_json::to_vec_pretty(&lang_map)
+            .unwrap_or_else(|_| assets.raw_lang_files[path].clone());
         write_zip_entry(&mut zip, &mut written_entries, options, path, &bytes)?;
     }
 
@@ -435,7 +475,7 @@ pub fn build_rmod_package(
         declared_block_subpaths.insert(subpath.to_string());
         let zip_path = format!("data/{ns}/horizon/block/{subpath}.json");
         let block_info = TemplateEngine::infer_block_template(&block.id, None, None);
-        let block_json = serde_json::json!({
+        let mut block_json = serde_json::json!({
             "template": block_info.template,
             "item": true,
             "properties": {
@@ -445,6 +485,9 @@ pub fn build_rmod_package(
                 "requires_tool": block_info.requires_tool
             }
         });
+        if !block.components.is_empty() {
+            block_json["components"] = serde_json::to_value(&block.components).unwrap_or_default();
+        }
         if let Ok(bytes) = serde_json::to_vec_pretty(&block_json) {
             write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, &bytes)?;
         }
@@ -468,10 +511,13 @@ pub fn build_rmod_package(
         } else {
             item_info.max_stack_size.clamp(1, 99) as u8
         };
-        let item_json = serde_json::json!({
+        let mut item_json = serde_json::json!({
             "template": item_info.template,
             "max_stack_size": effective_stack,
         });
+        if !item.components.is_empty() {
+            item_json["components"] = serde_json::to_value(&item.components).unwrap_or_default();
+        }
         if let Ok(bytes) = serde_json::to_vec_pretty(&item_json) {
             write_zip_entry(&mut zip, &mut written_entries, options, &zip_path, &bytes)?;
         }

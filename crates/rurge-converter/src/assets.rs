@@ -502,12 +502,42 @@ pub fn extract_assets_from_zip<R: Read + Seek>(
                 .ok()
                 .and_then(|text| parse_lang_json(text).ok());
             if let Some(lang_map) = parsed_lang {
-                extracted.lang.extend(lang_map);
+                let lower = normalized_path.to_ascii_lowercase();
+                if lower.ends_with("/en_us.json") {
+                    for (k, v) in lang_map {
+                        extracted.lang.insert(k, v);
+                    }
+                } else if extracted.lang.is_empty() {
+                    extracted.lang.extend(lang_map);
+                } else {
+                    for (k, v) in lang_map {
+                        extracted.lang.entry(k).or_insert(v);
+                    }
+                }
             }
         } else if is_lang_legacy {
+            let lower = normalized_path.to_ascii_lowercase();
+            let json_path = if lower.ends_with(".lang") {
+                format!("{}.json", &normalized_path[..normalized_path.len() - 5])
+            } else {
+                normalized_path.clone()
+            };
             if let Ok(text) = std::str::from_utf8(&buf) {
                 let lang_map = parse_legacy_lang(text);
-                extracted.lang.extend(lang_map);
+                if let Ok(json_bytes) = serde_json::to_vec_pretty(&lang_map) {
+                    extracted.raw_lang_files.insert(json_path, json_bytes);
+                }
+                if lower.ends_with("/en_us.lang") {
+                    for (k, v) in lang_map {
+                        extracted.lang.insert(k, v);
+                    }
+                } else if extracted.lang.is_empty() {
+                    extracted.lang.extend(lang_map);
+                } else {
+                    for (k, v) in lang_map {
+                        extracted.lang.entry(k).or_insert(v);
+                    }
+                }
             }
         } else if is_recipe {
             let maybe_recipe_id = parse_data_key(&normalized_path, "recipes", ".json")

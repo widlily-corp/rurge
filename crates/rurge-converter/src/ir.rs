@@ -6,7 +6,7 @@
 
 use crate::manifest::ModMetadata;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Minecraft tool classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -306,6 +306,8 @@ pub struct BlockDef {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub triggers: Vec<BlockTriggerDef>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub components: BTreeMap<String, serde_json::Value>,
 }
 
 impl Default for BlockDef {
@@ -321,6 +323,7 @@ impl Default for BlockDef {
             opaque: true,
             model: None,
             triggers: Vec::new(),
+            components: BTreeMap::new(),
         }
     }
 }
@@ -337,6 +340,12 @@ impl BlockDef {
     /// Adds a trigger to this block definition.
     pub fn with_trigger(mut self, trigger: BlockTriggerDef) -> Self {
         self.triggers.push(trigger);
+        self
+    }
+
+    /// Adds a data component to this block item definition.
+    pub fn with_component(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
+        self.components.insert(key.into(), value);
         self
     }
 }
@@ -356,6 +365,8 @@ pub struct ItemDef {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<ItemActionDef>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub components: BTreeMap<String, serde_json::Value>,
 }
 
 impl Default for ItemDef {
@@ -369,6 +380,7 @@ impl Default for ItemDef {
             rarity: "COMMON".to_string(),
             model: None,
             actions: Vec::new(),
+            components: BTreeMap::new(),
         }
     }
 }
@@ -385,6 +397,12 @@ impl ItemDef {
     /// Adds an action definition to this item.
     pub fn with_action(mut self, action: ItemActionDef) -> Self {
         self.actions.push(action);
+        self
+    }
+
+    /// Adds a data component to this item definition.
+    pub fn with_component(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
+        self.components.insert(key.into(), value);
         self
     }
 }

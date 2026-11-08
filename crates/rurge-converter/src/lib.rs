@@ -120,11 +120,14 @@ fn analyze_jar(
         }
     }
 
-    // 4. Scan bytecode for content registrations
-    let mut content_ir = scan_classes_for_content(&classes, &metadata);
+    // 4. Initialize IR and merge assets (textures, models, lang keys) first
+    let mut content_ir = ContentIR::new(metadata.clone());
     assets.merge_into(&mut content_ir);
 
-    // 5. Audit compatibility
+    // 5. Scan bytecode and synthesize content with full access to metadata and lang
+    patterns::populate_content_from_classes(&classes, &metadata, &mut content_ir);
+
+    // 6. Audit compatibility
     let compatibility =
         audit_compatibility(metadata.loader, &classes, &zip_entry_names, &content_ir);
 

@@ -40,6 +40,11 @@ pub struct RunArgs {
     pub args: Vec<String>,
 }
 
+/// Resolves the cargo package name to launch for running the game client.
+pub fn resolve_client_package(_args: &RunArgs) -> &'static str {
+    "rurge-client"
+}
+
 /// Links `src` file to `dst` using symbolic link, hard link, or copy as fallback.
 pub fn link_file(src: &Path, dst: &Path) -> Result<(), std::io::Error> {
     if dst.exists() {
@@ -119,7 +124,7 @@ pub fn prepare_and_link_mod(
 /// Executes `cargo rurge run`.
 ///
 /// If invoked inside a mod directory (with `rurge.toml`), compiles the mod,
-/// packs and links the `.rmod` package into `mods/`, and launches `rurge-horizon`.
+/// packs and links the `.rmod` package into `mods/`, and launches `rurge-client`.
 pub fn execute(args: RunArgs) -> Result<(), CargoRurgeError> {
     let project_dir = match args.path {
         Some(ref p) if p.is_file() => p.parent().unwrap_or(Path::new(".")).to_path_buf(),
@@ -150,7 +155,7 @@ pub fn execute(args: RunArgs) -> Result<(), CargoRurgeError> {
     }
 
     let mut cmd = Command::new("cargo");
-    cmd.arg("run").arg("-p").arg("rurge-horizon");
+    cmd.arg("run").arg("-p").arg(resolve_client_package(&args));
 
     if args.release {
         cmd.arg("--release");

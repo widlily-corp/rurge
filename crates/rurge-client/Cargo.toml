@@ -10,7 +10,8 @@ rurge-core = { path = "../rurge-core" }
 rurge-runtime = { path = "../rurge-runtime" }
 rurge-converter = { path = "../rurge-converter" }
 rurge-installer = { path = "../rurge-installer" }
-rurge-horizon = { path = "../rurge-horizon" }
+abi_stable = { workspace = true }
+parking_lot = "0.12"
 horizon-client = { path = "../../../horizon/crates/horizon-client" }
 horizon-mods = { path = "../../../horizon/crates/horizon-mods" }
 horizon-shaders = { path = "../../../horizon/crates/horizon-shaders" }

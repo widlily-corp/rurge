@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 
 pub mod commands;
 pub mod templates;
-pub use commands::run::RunArgs;
+pub use commands::run::{resolve_client_package, RunArgs};
 
 /// Unified errors for `cargo-rurge` CLI and library operations.
 #[derive(Debug, thiserror::Error)]

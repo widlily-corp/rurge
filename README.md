@@ -57,7 +57,13 @@ cargo run -p rurge-installer
 Launch `rurge-client` with hardware CPU core budgeting (reserving physical cores for OS/Discord), focus governor (144 FPS active, 30 FPS unfocused, 10 FPS with GPU present disabled on minimize), lock-free zero-alloc triple buffering, and panic-isolated mod runtime:
 
 ```bash
-cargo run -p rurge-client
+cargo run --release -p rurge-client
+```
+
+Or launch via `cargo-rurge`:
+
+```bash
+cargo rurge run --release
 ```
 
 ---
@@ -122,27 +128,31 @@ This compiles your native library and outputs `my_mod-0.1.0.rmod`. Drop it into 
 
 ---
 
-## 🎮 Running the Rurge Client (`rurge-horizon`)
+## 🎮 Running the Rurge Client (`rurge-client`)
 
-Rurge provides a dedicated native client runner crate, `rurge-horizon`, which embeds the Rurge mod loader and WGPU render pipeline directly into the Horizon client lifecycle.
+Rurge provides a dedicated native client runner crate, `rurge-client`, which embeds the Rurge mod loader, multi-core simulation/rendering pipelines, and WGPU render loop directly into the voxel game lifecycle.
 
 You can launch the client directly using `cargo-rurge`:
 
 ```bash
-cargo rurge run
+cargo rurge run --release
 ```
 
 Or run the client crate directly via Cargo:
 
 ```bash
-cargo run -p rurge-horizon
+cargo run --release -p rurge-client
 ```
 
-On startup, `rurge-horizon`:
-1. Creates and scans the local `mods/` and `shaderpacks/` directories.
-2. Unpacks the embedded default shaderpack (`test-classic-shader.zip`) into `shaderpacks/` if not present.
-3. Initializes the `RurgeEngine` runtime and mounts dynamic `.rmod` mods into the game loop.
-4. Hooks into Horizon's WGPU rendering lifecycle (`RenderHooks`, `world_drawn`, `hand_drawn`, and `shader_params`), providing safe panic boundaries and zero-cost GPU execution.
+*(Legacy `cargo run -p rurge-horizon` is also supported and forwards automatically to `rurge-client`.)*
+
+On startup, `rurge-client`:
+1. Scans CPU topology and system RAM to configure hardware-budgeted Rayon worker threads and memory tiers.
+2. Creates and scans the local `mods/` and `shaderpacks/` directories, linking sound assets for zero-warning audio parity.
+3. Unpacks the embedded default shaderpack (`test-classic-shader.zip`) into `shaderpacks/` if not present.
+4. Auto-converts dropped Minecraft Java `.jar` mods into native `.rmod` packages.
+5. Initializes the `RurgeEngine` runtime and mounts dynamic `.rmod` mods into the game loop.
+6. Hooks into the WGPU rendering lifecycle with decoupled triple-buffered rendering, focus-based power governance (144+ FPS active / 30 FPS unfocused / 10 FPS minimized), and panic-isolated mod execution.
 
 ---
 

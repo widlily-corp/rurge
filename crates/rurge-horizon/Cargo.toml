@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+rurge-client = { path = "../rurge-client" }
 rurge-api = { path = "../rurge-api" }
 rurge-core = { path = "../rurge-core" }
 rurge-blamer = { path = "../rurge-blamer" }

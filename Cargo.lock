@@ -3573,6 +3573,7 @@ dependencies = [
 name = "rurge-client"
 version = "0.1.0"
 dependencies = [
+ "abi_stable",
  "bumpalo",
  "crossbeam",
  "env_logger",
@@ -3585,12 +3586,12 @@ dependencies = [
  "horizon-world",
  "log",
  "num_cpus",
+ "parking_lot",
  "pollster",
  "rayon",
  "rurge-api",
  "rurge-converter",
  "rurge-core",
- "rurge-horizon",
  "rurge-installer",
  "rurge-runtime",
  "serde_json",
@@ -3643,6 +3644,7 @@ dependencies = [
  "parking_lot",
  "rurge-api",
  "rurge-blamer",
+ "rurge-client",
  "rurge-converter",
  "rurge-core",
  "rurge-loader",

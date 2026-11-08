@@ -160,7 +160,7 @@ pub fn launch_with_config(config: &EngineConfig) -> Result<(), Box<dyn std::erro
     }
 
     // e. Ensure default shaderpack installed and configure live shaderpack
-    match rurge_horizon::shaderpack_bundle::ensure_default_shaderpack_installed(&config.shaderpacks_dir) {
+    match crate::shaderpack_bundle::ensure_default_shaderpack_installed(&config.shaderpacks_dir) {
         Ok(path) => log::info!("Default shaderpack verified at '{}'", path.display()),
         Err(e) => log::warn!("Default shaderpack installation notice: {e}"),
     }
@@ -179,7 +179,7 @@ pub fn launch_with_config(config: &EngineConfig) -> Result<(), Box<dyn std::erro
     log::info!("Live shaderpack active: {best_sp}");
 
     // f. Convert dropped .jar mods in mods_dir to .rmod packages
-    let converted = rurge_horizon::jar_scanner::convert_dropped_jars_in(&config.mods_dir);
+    let converted = crate::jar_scanner::convert_dropped_jars_in(&config.mods_dir);
     if !converted.is_empty() {
         log::info!("Auto-converted {} dropped JAR mod(s) to native .rmod", converted.len());
     }
@@ -207,7 +207,7 @@ pub fn launch_with_config(config: &EngineConfig) -> Result<(), Box<dyn std::erro
 
     // h. Package mod hooks into Mods trait collection
     let engine = Arc::new(engine);
-    let hooks = rurge_horizon::hooks::RurgeHorizonHooks::new(Arc::clone(&engine));
+    let hooks = crate::hooks::RurgeHorizonHooks::new(Arc::clone(&engine));
     let mods: horizon_client::mod_api::Mods = Arc::new([Box::new(hooks)]);
 
     // i. Launch client via horizon_client::entry::main_with

@@ -17,6 +17,7 @@ pub mod packager;
 pub mod patterns;
 pub mod schema;
 pub mod templates;
+pub mod wasm_emitter;
 
 pub use assets::{
     extract_assets_from_zip, parse_lang_json, parse_legacy_lang, parse_recipe_json,

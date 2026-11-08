@@ -854,6 +854,11 @@ pub fn build_rmod_package(
         }
     }
 
+    // 12. Compile and package WebAssembly module: bin/mod.wasm
+    if let Ok(wasm_bytes) = crate::wasm_emitter::WasmEmitter::compile_from_ir(&ir) {
+        write_zip_entry(&mut zip, &mut written_entries, options, "bin/mod.wasm", &wasm_bytes)?;
+    }
+
     zip.finish()?;
     // 12. Also ensure a twin .hmod package is created if saving to a .rmod path
     if output_path.extension().and_then(|e| e.to_str()) == Some("rmod") {

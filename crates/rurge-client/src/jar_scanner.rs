@@ -68,8 +68,19 @@ pub fn convert_dropped_jars_in(mods_dir: &Path) -> Vec<ConversionSummary> {
             rmod_path.display()
         );
 
-        match convert_jar_to_rmod(&jar_path, Some(&rmod_path)) {
+        let tmp_rmod = jar_path.with_extension("rmod.tmp");
+        let tmp_hmod = jar_path.with_extension("hmod.tmp");
+
+        match convert_jar_to_rmod(&jar_path, Some(&tmp_rmod)) {
             Ok(summary) => {
+                if let Err(e) = std::fs::rename(&tmp_rmod, &rmod_path) {
+                    log::error!("[Rurge] Failed to commit atomic .rmod package: {e}");
+                    let _ = std::fs::remove_file(&tmp_rmod);
+                    continue;
+                }
+                let _ = std::fs::copy(&rmod_path, &tmp_hmod);
+                let _ = std::fs::rename(&tmp_hmod, &hmod_path);
+
                 log::info!(
                     "[Rurge] Successfully converted '{}' ({}): {} blocks, {} items, {} recipes",
                     summary.metadata.name,
@@ -78,10 +89,10 @@ pub fn convert_dropped_jars_in(mods_dir: &Path) -> Vec<ConversionSummary> {
                     summary.items_count,
                     summary.recipes_count
                 );
-                let _ = std::fs::copy(&rmod_path, &hmod_path);
                 summaries.push(summary);
             }
             Err(e) => {
+                let _ = std::fs::remove_file(&tmp_rmod);
                 log::error!(
                     "[Rurge] Failed to convert dropped JAR mod '{}': {e}",
                     jar_path.display()

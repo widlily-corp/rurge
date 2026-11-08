@@ -40,12 +40,11 @@ impl RurgeHorizonHooks {
     /// Returns the currently tracked active shaderpack name, if any.
     pub fn current_shader(&self) -> Option<String> {
         let val = self.current_shader.read().clone();
-        if val.is_none() {
-            if let Some(active) = Self::query_active_shaderpack() {
+        if val.is_none()
+            && let Some(active) = Self::query_active_shaderpack() {
                 *self.current_shader.write() = Some(active.clone());
                 return Some(active);
             }
-        }
         val
     }
 
@@ -99,11 +98,10 @@ impl RurgeHorizonHooks {
         if let Ok(entries) = std::fs::read_dir(&sp_dir) {
             for entry in entries.flatten() {
                 let p = entry.path();
-                if p.is_file() && p.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("zip")) {
-                    if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                if p.is_file() && p.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
+                    && let Some(name) = p.file_name().and_then(|n| n.to_str()) {
                         available.push(name.to_string());
                     }
-                }
             }
         }
         available.sort_by(|a, b| b.cmp(a));
@@ -550,13 +548,11 @@ fn is_hmod_installed(ns: &str) -> bool {
     if let Ok(entries) = std::fs::read_dir(hmod_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() && path.extension().is_some_and(|e| e == "hmod") {
-                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                    if name == ns || name.starts_with(&format!("{ns}-")) {
+            if path.is_file() && path.extension().is_some_and(|e| e == "hmod")
+                && let Some(name) = path.file_stem().and_then(|s| s.to_str())
+                    && (name == ns || name.starts_with(&format!("{ns}-"))) {
                         return true;
                     }
-                }
-            }
         }
     }
     false

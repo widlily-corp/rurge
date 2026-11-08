@@ -98,11 +98,10 @@ pub fn launch_with_args(args: &[String]) -> Result<(), Box<dyn std::error::Error
                 }
             }
             "--fps" | "--target-fps" => {
-                if let Some(val) = iter.next() {
-                    if let Ok(fps) = val.parse::<u32>() {
+                if let Some(val) = iter.next()
+                    && let Ok(fps) = val.parse::<u32>() {
                         config.target_fps = fps;
                     }
-                }
             }
             _ => {}
         }
@@ -251,14 +250,13 @@ fn ensure_mods_config(dirs: &[&Path]) {
                 let p = entry.path();
                 let is_pkg = p.is_file()
                     && p.extension().is_some_and(|e| e == "rmod" || e == "hmod");
-                if is_pkg {
-                    if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                if is_pkg
+                    && let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
                         let id = stem.split('-').next().unwrap_or(stem).to_string();
                         if !detected_ids.contains(&id) {
                             detected_ids.push(id);
                         }
                     }
-                }
             }
         }
     }

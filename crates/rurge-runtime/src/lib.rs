@@ -11,6 +11,7 @@ pub mod hooks;
 pub mod persistence;
 pub mod render;
 pub mod scripting;
+pub mod wasm;
 pub use render as render_hooks;
 
 pub use block_entity::{
